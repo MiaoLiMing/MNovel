@@ -1,0 +1,15 @@
+.tmp/
+.idea/
+.vscode/*.log
+**/.dart_tool/
+**/build/
+**/.gradle/
+**/local.properties
+**/*.iml
+**/__pycache__/
+**/.pytest_cache/
+**/data/content-cache/
+*.db
+*.sqlite3
+deploy/.env
+dist/
