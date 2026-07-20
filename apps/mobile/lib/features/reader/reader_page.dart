@@ -5,7 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../../data/content_api_repository.dart';
+import '../../data/content_repository.dart';
+import '../../data/reading_progress_store.dart';
 import '../../domain/content.dart';
 import 'reader_settings.dart';
 
@@ -22,8 +23,9 @@ class ReaderPage extends StatefulWidget {
 class _ReaderPageState extends State<ReaderPage> {
   static const _motion = Duration(milliseconds: 260);
 
-  final _contentRepository = ContentApiRepository();
+  final _contentRepository = ContentRepository();
   final _settingsStore = ReaderSettingsStore();
+  final _progressStore = ReadingProgressStore();
   PageController _pageController = PageController(initialPage: 1);
   Timer? _autoPageTimer;
   ReaderSettings _settings = const ReaderSettings();
@@ -42,8 +44,16 @@ class _ReaderPageState extends State<ReaderPage> {
   }
 
   Future<void> _initializeChapters() async {
+    final savedProgress = await _progressStore.load(widget.item.id);
     if (widget.initialChapters case final chapters?) {
-      setState(() => _chapters = chapters);
+      if (!mounted) return;
+      setState(() {
+        _chapters = chapters;
+        _chapterIndex = savedProgress.chapterIndex.clamp(
+          0,
+          chapters.length - 1,
+        );
+      });
       return;
     }
     if (!widget.item.isLive) {
@@ -56,8 +66,9 @@ class _ReaderPageState extends State<ReaderPage> {
         count,
         (index) => Chapter(title: '第 ${index + 1} 节', paragraphs: const []),
       );
+      _chapterIndex = savedProgress.chapterIndex.clamp(0, count - 1);
     });
-    await _loadChapter(0);
+    await _loadChapter(_chapterIndex);
   }
 
   Future<void> _loadChapter(int index) async {
@@ -74,7 +85,7 @@ class _ReaderPageState extends State<ReaderPage> {
         _chapterLoading = false;
         _resetPageController();
       });
-    } on ContentApiException catch (error) {
+    } on ContentRepositoryException catch (error) {
       if (!mounted) return;
       setState(() {
         _chapterLoading = false;
@@ -95,6 +106,7 @@ class _ReaderPageState extends State<ReaderPage> {
     _autoPageTimer?.cancel();
     unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
     _pageController.dispose();
+    unawaited(_saveProgress());
     super.dispose();
   }
 
@@ -169,11 +181,18 @@ class _ReaderPageState extends State<ReaderPage> {
     if (widget.item.isLive && chapters[index].paragraphs.isEmpty) {
       unawaited(_loadChapter(index));
     }
+    unawaited(_saveProgress());
     Future<void>.delayed(const Duration(milliseconds: 320), () {
       _switchingChapter = false;
     });
     return true;
   }
+
+  Future<void> _saveProgress() => _progressStore.save(
+    widget.item.id,
+    chapterIndex: _chapterIndex,
+    ratio: _chapters.length <= 1 ? 0 : _chapterIndex / (_chapters.length - 1),
+  );
 
   @override
   Widget build(BuildContext context) {

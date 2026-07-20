@@ -94,14 +94,16 @@ const builtInSources = <BuiltInSource>[
   ),
 ];
 
-class SourceManagementPage extends StatefulWidget {
-  const SourceManagementPage({super.key});
+class LegacySourceManagementPage extends StatefulWidget {
+  const LegacySourceManagementPage({super.key});
 
   @override
-  State<SourceManagementPage> createState() => _SourceManagementPageState();
+  State<LegacySourceManagementPage> createState() =>
+      _LegacySourceManagementPageState();
 }
 
-class _SourceManagementPageState extends State<SourceManagementPage> {
+class _LegacySourceManagementPageState
+    extends State<LegacySourceManagementPage> {
   late final Map<String, bool> _enabled = {
     for (final source in builtInSources) source.id: source.enabled,
   };

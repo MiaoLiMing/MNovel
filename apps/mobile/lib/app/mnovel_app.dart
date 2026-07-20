@@ -12,7 +12,7 @@ class MNovelApp extends StatelessWidget {
       title: 'MNovel',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
-      home: const AppShell(initialIndex: 1),
+      home: const AppShell(),
     );
   }
 }

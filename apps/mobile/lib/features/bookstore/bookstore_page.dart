@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/channel_tabs.dart';
 import '../../core/widgets/content_cover.dart';
-import '../../data/content_api_repository.dart';
+import '../../data/content_repository.dart';
 import '../../domain/content.dart';
 import '../detail/content_detail_page.dart';
 
@@ -17,7 +17,7 @@ class BookstorePage extends StatefulWidget {
 }
 
 class _BookstorePageState extends State<BookstorePage> {
-  final _repository = ContentApiRepository();
+  final _repository = ContentRepository();
   final _searchController = TextEditingController();
   ContentChannel _channel = ContentChannel.novel;
   String _query = '';
@@ -53,7 +53,7 @@ class _BookstorePageState extends State<BookstorePage> {
         _items = items;
         _loading = false;
       });
-    } on ContentApiException catch (error) {
+    } on ContentRepositoryException catch (error) {
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _items = const [];
@@ -129,13 +129,13 @@ class _BookstorePageState extends State<BookstorePage> {
                 Row(
                   children: [
                     const Icon(
-                      Icons.cloud_done_outlined,
+                      Icons.phone_android_rounded,
                       color: AppColors.sage,
                       size: 17,
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      '实时公开目录 · 非演示数据',
+                      '设备端直连 · 无需自建服务端',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],

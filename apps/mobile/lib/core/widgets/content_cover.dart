@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'web_image_stub.dart'
-    if (dart.library.js_util) 'web_image_web.dart';
+import 'web_image_stub.dart' if (dart.library.js_util) 'web_image_web.dart';
 
 class ContentCover extends StatelessWidget {
   const ContentCover({
@@ -24,19 +23,21 @@ class ContentCover extends StatelessWidget {
         ? 'assets/covers/${asset.substring(8)}'
         : asset;
 
-    final isNetwork = resolvedAsset.startsWith('http://') || resolvedAsset.startsWith('https://');
+    final isNetwork =
+        resolvedAsset.startsWith('http://') ||
+        resolvedAsset.startsWith('https://');
 
     final image = isNetwork
         ? (kIsWeb
-            ? createWebImage(resolvedAsset, width, height)
-            : Image.network(
-                resolvedAsset,
-                width: width,
-                height: height,
-                fit: BoxFit.cover,
-                filterQuality: FilterQuality.medium,
-                errorBuilder: _error,
-              ))
+              ? createWebImage(resolvedAsset, width, height)
+              : Image.network(
+                  resolvedAsset,
+                  width: width,
+                  height: height,
+                  fit: BoxFit.cover,
+                  filterQuality: FilterQuality.medium,
+                  errorBuilder: _error,
+                ))
         : Image.asset(
             resolvedAsset,
             width: width,

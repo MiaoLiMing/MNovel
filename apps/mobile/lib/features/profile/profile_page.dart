@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
 import 'profile_detail_pages.dart';
+import 'source_management_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});

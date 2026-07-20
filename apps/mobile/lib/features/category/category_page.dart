@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/content_cover.dart';
-import '../../data/content_api_repository.dart';
+import '../../data/content_repository.dart';
 import '../../domain/content.dart';
 import '../detail/content_detail_page.dart';
 
@@ -18,7 +18,7 @@ class CategoryPage extends StatefulWidget {
 class _CategoryPageState extends State<CategoryPage> {
   ContentChannel _channel = ContentChannel.novel;
   String _selected = '全部';
-  final _repository = ContentApiRepository();
+  final _repository = ContentRepository();
   List<ContentItem> _items = const [];
   bool _loading = true;
   String? _error;
@@ -43,7 +43,7 @@ class _CategoryPageState extends State<CategoryPage> {
         _items = items;
         _loading = false;
       });
-    } on ContentApiException catch (error) {
+    } on ContentRepositoryException catch (error) {
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _items = const [];

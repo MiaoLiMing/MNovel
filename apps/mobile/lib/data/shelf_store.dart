@@ -3,15 +3,21 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../domain/content.dart';
+import 'reading_progress_store.dart';
 
 class ShelfStore {
   static const _key = 'shelf.items.v1';
+  final _progressStore = ReadingProgressStore();
 
   Future<List<ContentItem>> list(ContentChannel channel) async {
     final items = await _read();
-    return items
-        .where((item) => item.channel == channel)
-        .toList(growable: false);
+    final channelItems = items.where((item) => item.channel == channel);
+    return Future.wait(
+      channelItems.map((item) async {
+        final progress = await _progressStore.load(item.id);
+        return item.copyWith(progress: progress.ratio);
+      }),
+    );
   }
 
   Future<bool> contains(String id) async {
