@@ -74,10 +74,10 @@ jobs:
           test -d "$app_path"
           rm -rf "$output_dir"
           mkdir -p "$output_dir/Payload"
-          cp -R "$app_path" "$output_dir/Payload/Runner.app"
+          cp -Rp "$app_path" "$output_dir/Payload/Runner.app"
 
           cd "$output_dir"
-          /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload MNovel-unsigned.ipa
+          zip -ry MNovel-unsigned.ipa Payload
           /usr/bin/shasum -a 256 MNovel-unsigned.ipa > MNovel-unsigned.ipa.sha256
           /usr/bin/unzip -t MNovel-unsigned.ipa
 
