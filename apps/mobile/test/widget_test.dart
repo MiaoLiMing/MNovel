@@ -8,6 +8,7 @@ import 'fixtures/demo_repository.dart';
 
 void main() {
   testWidgets('书城默认展示四栏导航与三频道', (tester) async {
+    SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(const MNovelApp());
     await tester.pump(const Duration(milliseconds: 500));
 
@@ -17,21 +18,21 @@ void main() {
     expect(find.text('我的'), findsWidgets);
     expect(find.text('小说'), findsWidgets);
     expect(find.text('短剧'), findsWidgets);
-    expect(find.text('视频'), findsWidgets);
+    expect(find.text('影视'), findsWidgets);
   });
 
   testWidgets('我的内容与存储入口可以进入明细页', (tester) async {
+    SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(const MNovelApp());
     await tester.pump(const Duration(milliseconds: 500));
 
     await tester.tap(find.text('我的').last);
     await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.text('内容源管理'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
 
-    expect(find.text('Open Library'), findsOneWidget);
-    expect(find.text('Project Gutenberg OPDS'), findsOneWidget);
+    expect(find.text('MNovel 本地目录'), findsOneWidget);
+    expect(find.text('Project Gutenberg'), findsOneWidget);
     expect(find.text('内容源管理'), findsOneWidget);
   });
 

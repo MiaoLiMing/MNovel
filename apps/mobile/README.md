@@ -1,16 +1,27 @@
-# mnovel
+# MNovel Flutter 客户端
 
-A new Flutter project.
+MNovel 是一个纯本地架构的小说、短剧与影视聚合 App。它不依赖自建后端：内容源由 Flutter 客户端直接访问，书架、阅读进度、阅读设置和来源配置只保存在设备上。
 
-## Getting Started
+## 运行
 
-This project is a starting point for a Flutter application.
+```powershell
+cd D:\work\project\AP\MNovel
+.\scripts\flutter.ps1 pub get
+.\scripts\flutter.ps1 run
+```
 
-A few resources to get you started if this is your first Flutter project:
+## 验证
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+```powershell
+.\scripts\verify-mobile.ps1
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## 数据边界
+
+- `ContentRepository`：聚合启用的设备端来源适配器。
+- `SourceStore`：保存内置源启停状态和用户添加的 JSON 来源。
+- `ShelfStore`：保存书架。
+- `ReadingProgressStore`：保存每本内容的章节进度。
+- `ReaderSettingsStore`：保存阅读器外观与交互设置。
+
+自定义 JSON 来源可返回一个数组，或返回含 `items` / `results` 数组的对象。条目字段采用 `ContentItem.toJson()` 的结构。

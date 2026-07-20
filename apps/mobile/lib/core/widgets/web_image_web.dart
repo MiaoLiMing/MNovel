@@ -8,23 +8,20 @@ final Set<String> _registeredImageUrls = {};
 
 Widget createWebImage(String url, double? width, double? height) {
   final viewId = 'web-image-${url.hashCode}';
-  
+
   if (!_registeredImageUrls.contains(viewId)) {
-    ui_web.platformViewRegistry.registerViewFactory(
-      viewId,
-      (int id) {
-        final element = html.ImageElement()
-          ..src = url
-          ..style.width = '100%'
-          ..style.height = '100%'
-          ..style.objectFit = 'cover'
-          ..style.border = 'none';
-        return element;
-      },
-    );
+    ui_web.platformViewRegistry.registerViewFactory(viewId, (int id) {
+      final element = html.ImageElement()
+        ..src = url
+        ..style.width = '100%'
+        ..style.height = '100%'
+        ..style.objectFit = 'cover'
+        ..style.border = 'none';
+      return element;
+    });
     _registeredImageUrls.add(viewId);
   }
-  
+
   return SizedBox(
     width: width,
     height: height,

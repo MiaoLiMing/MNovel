@@ -8,7 +8,7 @@ extension ContentChannelLabel on ContentChannel {
       case ContentChannel.shortDrama:
         return '短剧';
       case ContentChannel.video:
-        return '视频';
+        return '影视';
     }
   }
 }
@@ -45,6 +45,22 @@ class ContentItem {
   final bool isLive;
 
   String get unitLabel => channel == ContentChannel.novel ? '章' : '集';
+
+  ContentItem copyWith({double? progress}) => ContentItem(
+    id: id,
+    channel: channel,
+    title: title,
+    creator: creator,
+    category: category,
+    summary: summary,
+    coverAsset: coverAsset,
+    popularity: popularity,
+    progress: progress ?? this.progress,
+    episodeCount: episodeCount,
+    sourceId: sourceId,
+    sourceName: sourceName,
+    isLive: isLive,
+  );
 
   factory ContentItem.fromJson(Map<String, dynamic> json) => ContentItem(
     id: json['id'] as String,

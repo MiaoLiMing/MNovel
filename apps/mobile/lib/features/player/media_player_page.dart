@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../domain/content.dart';
-import 'web_player_stub.dart'
-    if (dart.library.js_util) 'web_player_web.dart';
+import 'web_player_stub.dart' if (dart.library.js_util) 'web_player_web.dart';
 
 class MediaPlayerPage extends StatefulWidget {
   const MediaPlayerPage({super.key, required this.item});
@@ -21,16 +20,23 @@ class _MediaPlayerPageState extends State<MediaPlayerPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Determine the video stream based on the content ID
-    String videoUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
-    if (widget.item.id.contains('earth') || widget.item.id.contains('video-1') || widget.item.id.contains('mountain')) {
-      videoUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4';
-    } else if (widget.item.id.contains('chang') || widget.item.id.contains('video-2')) {
-      videoUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4';
-    } else if (widget.item.id.contains('drama-1') || widget.item.id.contains('fog')) {
-      videoUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4';
+    // Determine the video stream based on the content ID (using high-speed China CDNs)
+    String videoUrl =
+        'https://sf1-cdn-tos.byteim.com/obj/media-fe/xgplayer_doc_video/mp4/xgplayer-demo-720p.mp4';
+    if (widget.item.id.contains('earth') ||
+        widget.item.id.contains('video-1') ||
+        widget.item.id.contains('mountain')) {
+      videoUrl =
+          'https://sf1-cdn-tos.byteim.com/obj/media-fe/xgplayer_doc_video/mp4/xgplayer-demo-720p.mp4';
+    } else if (widget.item.id.contains('chang') ||
+        widget.item.id.contains('video-2')) {
+      videoUrl = 'https://v-cdn.zjol.com.cn/280443.mp4';
+    } else if (widget.item.id.contains('drama-1') ||
+        widget.item.id.contains('fog')) {
+      videoUrl = 'https://v-cdn.zjol.com.cn/276982.mp4';
     } else if (widget.item.id.contains('drama-2')) {
-      videoUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+      videoUrl =
+          'https://sf1-cdn-tos.byteim.com/obj/media-fe/xgplayer_doc_video/mp4/xgplayer-demo-720p.mp4';
     }
 
     return Scaffold(
@@ -45,8 +51,13 @@ class _MediaPlayerPageState extends State<MediaPlayerPage> {
             else
               widget.item.coverAsset.startsWith('http')
                   ? Image.network(widget.item.coverAsset, fit: BoxFit.cover)
-                  : Image.asset(widget.item.coverAsset, fit: BoxFit.cover),
-            
+                  : Image.asset(
+                      widget.item.coverAsset.startsWith('asset://')
+                          ? 'assets/covers/${widget.item.coverAsset.substring(8)}'
+                          : widget.item.coverAsset,
+                      fit: BoxFit.cover,
+                    ),
+
             const DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -56,7 +67,7 @@ class _MediaPlayerPageState extends State<MediaPlayerPage> {
                 ),
               ),
             ),
-            
+
             // Top Back Button
             Positioned(
               top: 4,
@@ -69,7 +80,7 @@ class _MediaPlayerPageState extends State<MediaPlayerPage> {
                 ),
               ),
             ),
-            
+
             // Controls Layer
             if (!kIsWeb) ...[
               Center(
