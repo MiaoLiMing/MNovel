@@ -10,14 +10,16 @@ import '../../domain/content.dart';
 import '../detail/content_detail_page.dart';
 
 class BookstorePage extends StatefulWidget {
-  const BookstorePage({super.key});
+  const BookstorePage({super.key, this.repository});
+
+  final ContentRepository? repository;
 
   @override
   State<BookstorePage> createState() => _BookstorePageState();
 }
 
 class _BookstorePageState extends State<BookstorePage> {
-  final _repository = ContentRepository();
+  late final ContentRepository _repository;
   final _searchController = TextEditingController();
   ContentChannel _channel = ContentChannel.novel;
   String _query = '';
@@ -30,6 +32,7 @@ class _BookstorePageState extends State<BookstorePage> {
   @override
   void initState() {
     super.initState();
+    _repository = widget.repository ?? ContentRepository();
     unawaited(_load());
   }
 
@@ -40,10 +43,10 @@ class _BookstorePageState extends State<BookstorePage> {
     super.dispose();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool showLoading = true}) async {
     final requestId = ++_requestId;
     setState(() {
-      _loading = true;
+      if (showLoading) _loading = true;
       _error = null;
     });
     try {
@@ -90,120 +93,127 @@ class _BookstorePageState extends State<BookstorePage> {
 
     return SafeArea(
       bottom: false,
-      child: CustomScrollView(
-        key: const PageStorageKey('bookstore-scroll'),
-        slivers: [
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
-            sliver: SliverList(
-              delegate: SliverChildListDelegate.fixed([
-                Text('书城', style: Theme.of(context).textTheme.headlineMedium),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _searchController,
-                  onChanged: _onQueryChanged,
-                  onSubmitted: (_) => unawaited(_load()),
-                  textInputAction: TextInputAction.search,
-                  decoration: InputDecoration(
-                    hintText: _channel == ContentChannel.novel
-                        ? '搜索书名或作者'
-                        : '搜索片名或主创',
-                    prefixIcon: const Icon(Icons.search_rounded, size: 25),
-                    suffixIcon: _query.isEmpty
-                        ? null
-                        : IconButton(
-                            tooltip: '清空搜索',
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() => _query = '');
-                              unawaited(_load());
-                            },
-                            icon: const Icon(Icons.close_rounded),
-                          ),
+      child: RefreshIndicator(
+        onRefresh: () => _load(showLoading: false),
+        child: CustomScrollView(
+          key: PageStorageKey('bookstore-scroll-${_channel.name}'),
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate.fixed([
+                  Text('书城', style: Theme.of(context).textTheme.headlineMedium),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _searchController,
+                    onChanged: _onQueryChanged,
+                    onSubmitted: (_) => unawaited(_load()),
+                    textInputAction: TextInputAction.search,
+                    decoration: InputDecoration(
+                      hintText: _channel == ContentChannel.novel
+                          ? '搜索书名或作者'
+                          : '搜索片名或主创',
+                      prefixIcon: const Icon(Icons.search_rounded, size: 25),
+                      suffixIcon: _query.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: '清空搜索',
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() => _query = '');
+                                unawaited(_load());
+                              },
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  ChannelTabs(value: _channel, onChanged: _changeChannel),
+                  const Divider(height: 1),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.phone_android_rounded,
+                        color: AppColors.sage,
+                        size: 17,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '设备端直连 · 无需自建服务端',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ]),
+              ),
+            ),
+            if (_loading)
+              const SliverFillRemaining(
+                hasScrollBody: false,
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (items.isEmpty)
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: _EmptySearch(
+                  message: _error ?? '当前真实来源没有返回内容',
+                  onRetry: _load,
+                ),
+              )
+            else ...[
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
+                  child: _SectionHeader(
+                    title: _channel == ContentChannel.novel ? '今日精选' : '正在热播',
+                    action: '更多',
                   ),
                 ),
-                const SizedBox(height: 10),
-                ChannelTabs(value: _channel, onChanged: _changeChannel),
-                const Divider(height: 1),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.phone_android_rounded,
-                      color: AppColors.sage,
-                      size: 17,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '设备端直连 · 无需自建服务端',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ]),
-            ),
-          ),
-          if (_loading)
-            const SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (items.isEmpty)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: _EmptySearch(
-                message: _error ?? '当前真实来源没有返回内容',
-                onRetry: _load,
               ),
-            )
-          else ...[
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
-                child: _SectionHeader(
-                  title: _channel == ContentChannel.novel ? '今日精选' : '正在热播',
-                  action: '更多',
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: 292,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 18),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: items.take(3).length,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(width: 14),
+                    itemBuilder: (context, index) {
+                      final item = items[index];
+                      return _FeaturedCard(
+                        item: item,
+                        onTap: () => _open(item),
+                      );
+                    },
+                  ),
                 ),
               ),
-            ),
-            SliverToBoxAdapter(
-              child: SizedBox(
-                height: 292,
-                child: ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 18),
-                  scrollDirection: Axis.horizontal,
-                  itemCount: items.take(3).length,
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(width: 14),
-                  itemBuilder: (context, index) {
-                    final item = items[index];
-                    return _FeaturedCard(item: item, onTap: () => _open(item));
-                  },
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                sliver: SliverToBoxAdapter(
+                  child: _SectionHeader(
+                    title: _channel == ContentChannel.novel ? '热门榜单' : '热度榜单',
+                    action: '完整榜单',
+                  ),
                 ),
               ),
-            ),
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-              sliver: SliverToBoxAdapter(
-                child: _SectionHeader(
-                  title: _channel == ContentChannel.novel ? '热门榜单' : '热度榜单',
-                  action: '完整榜单',
-                ),
+              SliverList(
+                delegate: SliverChildBuilderDelegate((context, index) {
+                  final item = items[index % items.length];
+                  return _RankingRow(
+                    index: index,
+                    item: item,
+                    onTap: () => _open(item),
+                  );
+                }, childCount: items.length < 5 ? 5 : items.length),
               ),
-            ),
-            SliverList(
-              delegate: SliverChildBuilderDelegate((context, index) {
-                final item = items[index % items.length];
-                return _RankingRow(
-                  index: index,
-                  item: item,
-                  onTap: () => _open(item),
-                );
-              }, childCount: items.length < 5 ? 5 : items.length),
-            ),
-            const SliverToBoxAdapter(child: SizedBox(height: 24)),
+              const SliverToBoxAdapter(child: SizedBox(height: 24)),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

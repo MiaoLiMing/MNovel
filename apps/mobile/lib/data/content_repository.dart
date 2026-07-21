@@ -169,21 +169,10 @@ class ContentRepository {
   }) async {
     try {
       return await _discoverDirect(channel, query: query, category: category);
+    } on ContentRepositoryException {
+      rethrow;
     } catch (_) {
-      final normalizedQuery = query.trim().toLowerCase();
-      return _curatedChineseItems(channel)
-          .where((item) {
-            final matchesQuery =
-                normalizedQuery.isEmpty ||
-                item.title.toLowerCase().contains(normalizedQuery) ||
-                item.creator.toLowerCase().contains(normalizedQuery);
-            final matchesCategory =
-                category.isEmpty ||
-                category == '全部' ||
-                item.category.contains(category);
-            return matchesQuery && matchesCategory;
-          })
-          .toList(growable: false);
+      throw const ContentRepositoryException('内容源加载失败，请检查网络或来源配置');
     }
   }
 
