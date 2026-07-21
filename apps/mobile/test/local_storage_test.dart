@@ -10,21 +10,21 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final store = SourceStore();
 
-    await store.setEnabled('gutendex', false);
-    await store.addCustom(
-      const ContentSource(
-        id: 'custom-test',
-        name: '测试来源',
-        description: '测试',
-        channels: {ContentChannel.novel},
-        kind: SourceKind.json,
-        endpoint: 'https://example.com/catalog.json',
-      ),
+    final testSource = const ContentSource(
+      id: 'custom-test',
+      name: '测试来源',
+      description: '测试',
+      channels: {ContentChannel.novel},
+      kind: SourceKind.json,
+      endpoint: 'https://example.com/catalog.json',
     );
+
+    await store.addCustom(testSource);
+    await store.setEnabled('custom-test', false);
 
     final sources = await store.list();
     expect(
-      sources.singleWhere((source) => source.id == 'gutendex').enabled,
+      sources.singleWhere((source) => source.id == 'custom-test').enabled,
       isFalse,
     );
     expect(

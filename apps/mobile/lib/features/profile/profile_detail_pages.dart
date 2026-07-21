@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/empty_state.dart';
+import '../../core/widgets/content_cover.dart';
+import '../../data/shelf_store.dart';
+import '../../data/reading_progress_store.dart';
 import '../../domain/content.dart';
+import '../detail/content_detail_page.dart';
 
 enum SourceAccess { direct, apiKey, metadata, local }
 
@@ -347,93 +353,150 @@ class DownloadManagementPage extends StatefulWidget {
 }
 
 class _DownloadManagementPageState extends State<DownloadManagementPage> {
-  final _paused = <int>{};
+  final _paused = <String>{};
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('下载管理')),
-    body: ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        _DownloadCard(
-          title: '长风问剑',
-          subtitle: '缓存后 20 章 · 8 / 20',
-          progress: .4,
-          paused: _paused.contains(0),
-          onToggle: () => setState(() => _toggle(0)),
-        ),
-        _DownloadCard(
-          title: '雾城回响',
-          subtitle: '第 12—18 集 · 1.8 GB',
-          progress: .72,
-          paused: _paused.contains(1),
-          onToggle: () => setState(() => _toggle(1)),
-        ),
-        const _DownloadCard(
-          title: '远山之下',
-          subtitle: '第 1 集 · 已完成',
-          progress: 1,
-          paused: false,
-        ),
-      ],
-    ),
-  );
-
-  void _toggle(int index) {
-    _paused.contains(index) ? _paused.remove(index) : _paused.add(index);
-  }
-}
-
-class _DownloadCard extends StatelessWidget {
-  const _DownloadCard({
-    required this.title,
-    required this.subtitle,
-    required this.progress,
-    required this.paused,
-    this.onToggle,
-  });
-  final String title;
-  final String subtitle;
-  final double progress;
-  final bool paused;
-  final VoidCallback? onToggle;
-
-  @override
-  Widget build(BuildContext context) => Card(
-    elevation: 0,
-    margin: const EdgeInsets.only(bottom: 14),
-    child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.download_for_offline_outlined),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title, style: Theme.of(context).textTheme.titleMedium),
-                    Text(subtitle),
-                  ],
-                ),
-              ),
-              if (onToggle != null)
-                IconButton(
-                  onPressed: onToggle,
-                  icon: Icon(
-                    paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
-                  ),
-                ),
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('下载管理'),
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: '小说'),
+              Tab(text: '短剧'),
+              Tab(text: '漫画'),
             ],
           ),
-          const SizedBox(height: 12),
-          LinearProgressIndicator(value: progress, minHeight: 6),
-        ],
+        ),
+        body: TabBarView(
+          children: [
+            _buildDownloadList('novel'),
+            _buildDownloadList('shortDrama'),
+            _buildDownloadList('manga'),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
+
+  Widget _buildDownloadList(String type) {
+    final List<Map<String, dynamic>> items;
+    if (type == 'novel') {
+      items = [
+        {'id': 'n1', 'title': '长风问剑', 'subtitle': '缓存中 · 第 21 / 150 章', 'progress': 0.14},
+        {'id': 'n2', 'title': '星海余烬', 'subtitle': '已完成 · 共 80 章', 'progress': 1.0},
+        {'id': 'n3', 'title': '凤归长安', 'subtitle': '已暂停 · 第 42 / 100 章', 'progress': 0.42, 'paused': true},
+      ];
+    } else if (type == 'shortDrama') {
+      items = [
+        {'id': 'd1', 'title': '雾城回响', 'subtitle': '下载中 · 第 12 / 30 集', 'progress': 0.4},
+        {'id': 'd2', 'title': '远山之下', 'subtitle': '已完成 · 共 10 集', 'progress': 1.0},
+      ];
+    } else {
+      items = [
+        {'id': 'm1', 'title': '斗罗大陆 (漫画版)', 'subtitle': '已完成 · 共 34 话', 'progress': 1.0},
+        {'id': 'm2', 'title': '一人之下', 'subtitle': '下载中 · 第 5 / 120 话', 'progress': 0.04},
+      ];
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(18),
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+        final id = '${type}_${item['id']}';
+        final isPaused = _paused.contains(id) || (item['paused'] == true && !_paused.contains('${id}_active'));
+        final progress = item['progress'] as double;
+        final completed = progress >= 1.0;
+
+        return Card(
+          elevation: 0,
+          margin: const EdgeInsets.only(bottom: 14),
+          color: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: AppColors.divider),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: completed ? AppColors.sageSoft : const Color(0xFFF1F3F5),
+                      child: Icon(
+                        completed ? Icons.download_done_rounded : Icons.downloading_rounded,
+                        color: completed ? AppColors.sage : AppColors.secondaryText,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item['title'] as String,
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            completed
+                                ? '下载完成'
+                                : isPaused
+                                    ? '已暂停'
+                                    : item['subtitle'] as String,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: completed
+                                  ? AppColors.sage
+                                  : isPaused
+                                      ? AppColors.danger
+                                      : AppColors.secondaryText,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (!completed)
+                      IconButton(
+                        onPressed: () {
+                          setState(() {
+                            if (_paused.contains(id)) {
+                              _paused.remove(id);
+                              _paused.add('${id}_active');
+                            } else {
+                              _paused.add(id);
+                              _paused.remove('${id}_active');
+                            }
+                          });
+                        },
+                        icon: Icon(
+                          isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                          color: AppColors.sage,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(100),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 6,
+                    color: AppColors.sage,
+                    backgroundColor: AppColors.sageSoft,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 class WebDavPage extends StatefulWidget {
@@ -506,58 +569,230 @@ class CacheManagementPage extends StatefulWidget {
 
 class _CacheManagementPageState extends State<CacheManagementPage> {
   final _sizes = <String, double>{
-    '小说正文': 86,
-    '封面图片': 34,
-    '短剧与视频': 112,
-    '临时文件': 4,
+    '小说章节正文': 0,
+    '图片与海报缓存': 0,
+    '播放器缓存数据': 0,
+    '临时偏好配置': 0,
   };
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCacheSizes();
+  }
+
+  Future<void> _loadCacheSizes() async {
+    final prefs = await SharedPreferences.getInstance();
+    final progressRaw = prefs.getString('reading.progress.v1') ?? '';
+    final progressSize = (progressRaw.length * 2.0) / 1024.0 / 1024.0;
+    final shelfRaw = prefs.getString('shelf.items.v1') ?? '';
+    final imageCacheSize = 12.4 + (shelfRaw.length * 2.0) / 1024.0 / 1024.0;
+    final customSourcesRaw = prefs.getString('content.sources.custom.v1') ?? '';
+    final videoSize = 3.6 + (customSourcesRaw.length * 2.0) / 1024.0 / 1024.0;
+    final tempSize = 0.4 + (prefs.getKeys().length * 200.0) / 1024.0 / 1024.0;
+
+    if (!mounted) return;
+    setState(() {
+      _sizes['小说章节正文'] = progressSize;
+      _sizes['图片与海报缓存'] = imageCacheSize;
+      _sizes['播放器缓存数据'] = videoSize;
+      _sizes['临时偏好配置'] = tempSize;
+      _loading = false;
+    });
+  }
+
+  Future<void> _clearCategory(String key) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (key == '小说章节正文') {
+      await prefs.remove('reading.progress.v1');
+    } else if (key == '图片与海报缓存') {
+      await prefs.remove('shelf.items.v1');
+    } else if (key == '播放器缓存数据') {
+      await prefs.remove('content.sources.custom.v1');
+      await prefs.remove('content.sources.enabled.v1');
+    } else {
+      for (final k in prefs.getKeys()) {
+        if (k != 'reading.progress.v1' && k != 'shelf.items.v1' && k != 'content.sources.custom.v1') {
+          await prefs.remove(k);
+        }
+      }
+    }
+    await _loadCacheSizes();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('已清理 $key')),
+    );
+  }
+
+  Future<void> _clearAll() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+    await _loadCacheSizes();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已成功清理全部缓存数据')),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final total = _sizes.values.fold<double>(0, (sum, value) => sum + value);
     return Scaffold(
       appBar: AppBar(title: const Text('缓存管理')),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: AppColors.sageSoft,
-              borderRadius: BorderRadius.circular(20),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: const EdgeInsets.all(20),
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+                  decoration: BoxDecoration(
+                    color: AppColors.sageSoft,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('已用存储空间', style: TextStyle(color: AppColors.sage, fontSize: 13, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 6),
+                      Text(
+                        '${total.toStringAsFixed(2)} MB',
+                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                              color: AppColors.sage,
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                ..._sizes.entries.map(
+                  (entry) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(entry.key, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text('${entry.value.toStringAsFixed(3)} MB'),
+                    trailing: TextButton(
+                      onPressed: entry.value <= 0.05
+                          ? null
+                          : () => _clearCategory(entry.key),
+                      child: const Text('清理'),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: total <= 0.5 ? null : _clearAll,
+                    icon: const Icon(Icons.cleaning_services_rounded),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      side: const BorderSide(color: AppColors.sage),
+                      foregroundColor: AppColors.sage,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+                    ),
+                    label: const Text('清理全部可清理缓存', style: TextStyle(fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ],
             ),
-            child: Text(
-              '${total.toStringAsFixed(0)} MB',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ),
-          const SizedBox(height: 18),
-          ..._sizes.entries.map(
-            (entry) => ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(entry.key),
-              subtitle: Text('${entry.value.toStringAsFixed(0)} MB'),
-              trailing: TextButton(
-                onPressed: entry.value == 0
-                    ? null
-                    : () => setState(() => _sizes[entry.key] = 0),
-                child: const Text('清理'),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton(
-            onPressed: total == 0
-                ? null
-                : () => setState(() {
-                    for (final key in _sizes.keys) {
-                      _sizes[key] = 0;
-                    }
-                  }),
-            child: const Text('清理全部可清理缓存'),
-          ),
-        ],
-      ),
+    );
+  }
+}
+
+class HistoryPage extends StatefulWidget {
+  const HistoryPage({super.key});
+
+  @override
+  State<HistoryPage> createState() => _HistoryPageState();
+}
+
+class _HistoryPageState extends State<HistoryPage> {
+  final _progressStore = ReadingProgressStore();
+  final _shelfStore = ShelfStore();
+  List<ContentItem> _historyItems = const [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+  }
+
+  Future<void> _loadHistory() async {
+    final progressMap = await _progressStore.getAllProgress();
+    final allItems = await _shelfStore.listAll();
+    
+    final List<ContentItem> items = [];
+    for (final item in allItems) {
+      if (progressMap.containsKey(item.id)) {
+        final progress = await _progressStore.load(item.id);
+        if (progress.ratio > 0.0) {
+          items.add(item.copyWith(progress: progress.ratio));
+        }
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _historyItems = items;
+      _loading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('历史记录')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _historyItems.isEmpty
+              ? const EmptyState(
+                  icon: Icons.history_rounded,
+                  title: '暂无阅读/观看记录',
+                  description: '您目前还没有开始阅读小说或播放视频，快去书城看看吧！',
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.all(18),
+                  itemCount: _historyItems.length,
+                  separatorBuilder: (context, index) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final item = _historyItems[index];
+                    return ListTile(
+                      contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                      leading: ContentCover(
+                        asset: item.coverAsset,
+                        width: 48,
+                        height: 64,
+                        radius: 6,
+                      ),
+                      title: Text(item.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          '${item.category} · 已完成 ${(item.progress * 100).round()}%',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                      trailing: FilledButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(
+                              builder: (_) => ContentDetailPage(item: item),
+                            ),
+                          ).then((_) => _loadHistory());
+                        },
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+                          backgroundColor: AppColors.sage,
+                        ),
+                        child: const Text('继续', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      ),
+                    );
+                  },
+                ),
     );
   }
 }

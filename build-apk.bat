@@ -3,20 +3,21 @@ setlocal EnableExtensions
 chcp 65001 >nul
 cd /d "%~dp0"
 
+pushd "apps\mobile"
+
 echo [1/4] Resolving Flutter dependencies...
-call powershell.exe -NoProfile -ExecutionPolicy Bypass -File "scripts\flutter.ps1" pub get
-if errorlevel 1 goto :failed
+call powershell.exe -NoProfile -ExecutionPolicy Bypass -File "..\..\scripts\flutter.ps1" pub get
+if errorlevel 1 goto :step_failed
 
 echo [2/4] Running static analysis...
-call powershell.exe -NoProfile -ExecutionPolicy Bypass -File "scripts\flutter.ps1" analyze --no-pub
-if errorlevel 1 goto :failed
+call powershell.exe -NoProfile -ExecutionPolicy Bypass -File "..\..\scripts\flutter.ps1" analyze --no-pub
+if errorlevel 1 goto :step_failed
 
 echo [3/4] Running tests...
-call powershell.exe -NoProfile -ExecutionPolicy Bypass -File "scripts\flutter.ps1" test --no-pub
-if errorlevel 1 goto :failed
+call powershell.exe -NoProfile -ExecutionPolicy Bypass -File "..\..\scripts\flutter.ps1" test --no-pub
+if errorlevel 1 goto :step_failed
 
 echo [4/4] Building release APK...
-pushd "apps\mobile"
 call powershell.exe -NoProfile -ExecutionPolicy Bypass -File "..\..\scripts\flutter.ps1" build apk --release --no-pub
 set "BUILD_EXIT=%ERRORLEVEL%"
 popd
@@ -29,6 +30,9 @@ echo %APK%
 if exist "%APK%" explorer.exe /select,"%APK%"
 pause
 exit /b 0
+
+:step_failed
+popd
 
 :failed
 echo.

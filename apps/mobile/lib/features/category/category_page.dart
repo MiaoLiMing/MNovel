@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/channel_tabs.dart';
 import '../../core/widgets/content_cover.dart';
+import '../../core/widgets/empty_state.dart';
 import '../../data/content_repository.dart';
 import '../../domain/content.dart';
 import '../detail/content_detail_page.dart';
@@ -23,6 +25,11 @@ class _CategoryPageState extends State<CategoryPage> {
   bool _loading = true;
   String? _error;
   int _requestId = 0;
+
+  // Interactive filter states
+  String _status = '全部状态';
+  String _time = '全部时间';
+  String _sort = '热度优先';
 
   @override
   void initState() {
@@ -57,6 +64,9 @@ class _CategoryPageState extends State<CategoryPage> {
     setState(() {
       _channel = value;
       _selected = '全部';
+      _status = '全部状态';
+      _time = '全部时间';
+      _sort = '热度优先';
     });
     unawaited(_load());
   }
@@ -77,206 +87,257 @@ class _CategoryPageState extends State<CategoryPage> {
     }
   }
 
+  void _showFilterOptions(
+    String title,
+    String currentValue,
+    List<String> options,
+    ValueChanged<String> onChanged,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              child: Text(
+                '选择$title',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                textAlign: TextAlign.center,
+              ),
+            ),
+            const Divider(height: 1),
+            ...options.map((option) {
+              final isSelected = option == currentValue;
+              return ListTile(
+                title: Text(
+                  option,
+                  style: TextStyle(
+                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                    color: isSelected ? AppColors.sage : AppColors.text,
+                  ),
+                ),
+                trailing: isSelected ? const Icon(Icons.check, color: AppColors.sage, size: 20) : null,
+                onTap: () {
+                  onChanged(option);
+                  Navigator.pop(context);
+                  unawaited(_load());
+                },
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilterTab({
+    required String label,
+    required String value,
+    required List<String> options,
+    required ValueChanged<String> onChanged,
+  }) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: InkWell(
+          onTap: () => _showFilterOptions(label, value, options, onChanged),
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAECF0),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Flexible(
+                  child: Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.text,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 2),
+                const Icon(Icons.arrow_drop_down, size: 16, color: AppColors.secondaryText),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
       bottom: false,
-      child: ListView(
-        key: const PageStorageKey('category-scroll'),
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 30),
+      child: Column(
         children: [
-          Text('分类', style: Theme.of(context).textTheme.headlineMedium),
-          const SizedBox(height: 18),
-          SegmentedButton(
-            values: ContentChannel.values,
-            selected: _channel,
-            onChanged: _selectChannel,
+          // Top tabs matching Bookstore style
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: ChannelTabs(value: _channel, onChanged: _selectChannel),
           ),
-          const SizedBox(height: 26),
-          Text('按类型浏览', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: _categories
-                .map(
-                  (label) => ChoiceChip(
-                    label: Text(label),
-                    selected: label == _selected,
-                    selectedColor: AppColors.sageSoft,
-                    labelStyle: TextStyle(
-                      color: label == _selected
-                          ? AppColors.sage
-                          : AppColors.text,
-                      fontWeight: label == _selected
-                          ? FontWeight.w600
-                          : FontWeight.w400,
+          const Divider(height: 1),
+          
+          // Side-by-side split columns
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Left Column: Category Sidebar
+                SizedBox(
+                  width: 96,
+                  child: Container(
+                    color: const Color(0xFFF1F3F5),
+                    child: ListView.builder(
+                      itemCount: _categories.length,
+                      itemBuilder: (context, index) {
+                        final label = _categories[index];
+                        final isSelected = label == _selected;
+                        return InkWell(
+                          onTap: () => _selectCategory(label),
+                          child: Container(
+                            height: 54,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: isSelected ? Colors.white : Colors.transparent,
+                              border: isSelected
+                                  ? const Border(
+                                      left: BorderSide(color: AppColors.sage, width: 4),
+                                    )
+                                  : null,
+                            ),
+                            child: Text(
+                              label,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                color: isSelected ? AppColors.sage : AppColors.text,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
-                    onSelected: (_) => _selectCategory(label),
-                  ),
-                )
-                .toList(),
-          ),
-          const SizedBox(height: 32),
-          Text('高级筛选', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 12),
-          const _FilterRow(label: '状态', value: '全部状态'),
-          const _FilterRow(label: '更新时间', value: '最近 30 天'),
-          const _FilterRow(label: '排序', value: '热度优先'),
-          const SizedBox(height: 28),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '真实来源结果',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-              ),
-              Text('${_items.length} 项'),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (_loading)
-            const Padding(
-              padding: EdgeInsets.all(36),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_items.isEmpty)
-            _CategoryEmpty(message: _error ?? '此分类暂无真实来源结果', onRetry: _load)
-          else
-            ..._items.map(
-              (item) => ListTile(
-                contentPadding: const EdgeInsets.symmetric(vertical: 7),
-                leading: ContentCover(
-                  asset: item.coverAsset,
-                  width: 54,
-                  height: 72,
-                  radius: 8,
-                ),
-                title: Text(
-                  item.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Text(
-                  '${item.creator}\n${item.sourceName}',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                isThreeLine: true,
-                trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => ContentDetailPage(item: item),
                   ),
                 ),
-              ),
+                
+                const VerticalDivider(width: 1, thickness: 1),
+                
+                // Right Column: Advanced Sub-filters (Top) and Content List (Bottom)
+                Expanded(
+                  child: Container(
+                    color: Colors.white,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Advanced Filters Row
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(8, 12, 8, 12),
+                          child: Row(
+                            children: [
+                              _buildFilterTab(
+                                label: '状态',
+                                value: _status,
+                                options: const ['全部状态', '连载中', '已完结'],
+                                onChanged: (val) => setState(() => _status = val),
+                              ),
+                              _buildFilterTab(
+                                label: '更新时间',
+                                value: _time,
+                                options: const ['全部时间', '最近 7 天', '最近 30 天', '三月前'],
+                                onChanged: (val) => setState(() => _time = val),
+                              ),
+                              _buildFilterTab(
+                                label: '排序',
+                                value: _sort,
+                                options: const ['热度优先', '评分优先', '更新优先'],
+                                onChanged: (val) => setState(() => _sort = val),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        
+                        // Content List Panel
+                        Expanded(
+                          child: _loading
+                              ? const Center(child: CircularProgressIndicator())
+                              : RefreshIndicator(
+                                  onRefresh: _load,
+                                  child: _items.isEmpty
+                                      ? ListView(
+                                          children: [
+                                            Padding(
+                                              padding: const EdgeInsets.only(top: 80),
+                                              child: EmptyState(
+                                                icon: Icons.category_outlined,
+                                                title: '此分类暂无内容',
+                                                description: _error ?? '在此筛选条件下未能加载到有效内容，请重试或配置其他源。',
+                                                actionLabel: '重新加载',
+                                                onAction: _load,
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      : ListView.separated(
+                                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+                                          itemCount: _items.length,
+                                          separatorBuilder: (context, index) => const Divider(height: 1),
+                                          itemBuilder: (context, index) {
+                                            final item = _items[index];
+                                            return ListTile(
+                                              contentPadding: const EdgeInsets.symmetric(vertical: 6),
+                                              leading: ContentCover(
+                                                asset: item.coverAsset,
+                                                width: 50,
+                                                height: 68,
+                                                radius: 6,
+                                              ),
+                                              title: Text(
+                                                item.title,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                                              ),
+                                              subtitle: Padding(
+                                                padding: const EdgeInsets.only(top: 4),
+                                                child: Text(
+                                                  '${item.creator} · ${item.sourceName}',
+                                                  maxLines: 2,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: const TextStyle(fontSize: 12),
+                                                ),
+                                              ),
+                                              trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+                                              onTap: () => Navigator.of(context).push(
+                                                MaterialPageRoute<void>(
+                                                  builder: (_) => ContentDetailPage(item: item),
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CategoryEmpty extends StatelessWidget {
-  const _CategoryEmpty({required this.message, required this.onRetry});
-
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(22),
-    decoration: BoxDecoration(
-      color: AppColors.sageSoft,
-      borderRadius: BorderRadius.circular(16),
-    ),
-    child: Column(
-      children: [
-        Text(message, textAlign: TextAlign.center),
-        const SizedBox(height: 10),
-        TextButton.icon(
-          onPressed: onRetry,
-          icon: const Icon(Icons.refresh_rounded),
-          label: const Text('重试'),
-        ),
-      ],
-    ),
-  );
-}
-
-class SegmentedButton extends StatelessWidget {
-  const SegmentedButton({
-    super.key,
-    required this.values,
-    required this.selected,
-    required this.onChanged,
-  });
-  final List<ContentChannel> values;
-  final ContentChannel selected;
-  final ValueChanged<ContentChannel> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: AppColors.sageSoft,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: values
-            .map(
-              (value) => Expanded(
-                child: InkWell(
-                  onTap: () => onChanged(value),
-                  borderRadius: BorderRadius.circular(11),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 160),
-                    alignment: Alignment.center,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: value == selected
-                          ? Colors.white
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(11),
-                    ),
-                    child: Text(
-                      value.label,
-                      style: TextStyle(
-                        fontWeight: value == selected
-                            ? FontWeight.w600
-                            : FontWeight.w400,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-}
-
-class _FilterRow extends StatelessWidget {
-  const _FilterRow({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: AppColors.divider)),
-      ),
-      child: Row(
-        children: [
-          Expanded(child: Text(label)),
-          Text(value),
-          const SizedBox(width: 6),
-          const Icon(Icons.chevron_right_rounded),
+          ),
         ],
       ),
     );

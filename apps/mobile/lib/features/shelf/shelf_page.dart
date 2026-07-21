@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../app/app_shell.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/channel_tabs.dart';
 import '../../core/widgets/content_cover.dart';
+import '../../core/widgets/empty_state.dart';
 import '../../data/shelf_store.dart';
 import '../../domain/content.dart';
 import '../detail/content_detail_page.dart';
@@ -51,106 +53,97 @@ class _ShelfPageState extends State<ShelfPage> {
     final items = _items;
     return SafeArea(
       bottom: false,
-      child: CustomScrollView(
-        key: const PageStorageKey('shelf-scroll'),
-        slivers: [
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
-            sliver: SliverList(
-              delegate: SliverChildListDelegate.fixed([
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '书架',
-                        style: Theme.of(context).textTheme.headlineMedium,
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: '切换布局',
-                      onPressed: () => setState(() => _grid = !_grid),
-                      icon: Icon(
-                        _grid
-                            ? Icons.view_list_outlined
-                            : Icons.grid_view_outlined,
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: '检查更新',
-                      onPressed: () =>
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('已检查更新，当前内容均为最新')),
-                          ),
-                      icon: const Icon(Icons.refresh_rounded),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                ChannelTabs(value: _channel, onChanged: _changeChannel),
-                const Divider(height: 1),
-                const SizedBox(height: 22),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _channel == ContentChannel.novel ? '最近阅读' : '继续观看',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                    ),
-                    Text(
-                      '${items.length} 项',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-              ]),
-            ),
-          ),
-          if (_loading)
-            const SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (items.isEmpty)
-            const SliverFillRemaining(
-              hasScrollBody: false,
-              child: _EmptyShelf(),
-            )
-          else if (_grid)
+      child: RefreshIndicator(
+        onRefresh: _loadShelf,
+        child: CustomScrollView(
+          key: const PageStorageKey('shelf-scroll'),
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
             SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              sliver: SliverGrid(
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  childAspectRatio: .56,
-                  crossAxisSpacing: 14,
-                  mainAxisSpacing: 18,
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate.fixed([
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ChannelTabs(value: _channel, onChanged: _changeChannel),
+                      ),
+                      IconButton(
+                        tooltip: '切换布局',
+                        onPressed: () => setState(() => _grid = !_grid),
+                        icon: Icon(
+                          _grid
+                              ? Icons.view_list_outlined
+                              : Icons.grid_view_outlined,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 1),
+                  const SizedBox(height: 22),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _channel == ContentChannel.novel ? '最近阅读' : '继续观看',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ),
+                      Text(
+                        '${items.length} 项',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                ]),
+              ),
+            ),
+            if (_loading)
+              const SliverFillRemaining(
+                hasScrollBody: false,
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (items.isEmpty)
+              const SliverFillRemaining(
+                hasScrollBody: false,
+                child: _EmptyShelf(),
+              )
+            else if (_grid)
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                sliver: SliverGrid(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    childAspectRatio: .56,
+                    crossAxisSpacing: 14,
+                    mainAxisSpacing: 18,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) => _ShelfGridItem(
+                      item: items[index],
+                      onTap: () => _open(items[index]),
+                    ),
+                    childCount: items.length,
+                  ),
                 ),
+              )
+            else
+              SliverList(
                 delegate: SliverChildBuilderDelegate(
-                  (context, index) => _ShelfGridItem(
+                  (context, index) => _ShelfListItem(
                     item: items[index],
                     onTap: () => _open(items[index]),
                   ),
                   childCount: items.length,
                 ),
               ),
-            )
-          else
-            SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) => _ShelfListItem(
-                  item: items[index],
-                  onTap: () => _open(items[index]),
-                ),
-                childCount: items.length,
-              ),
-            ),
           const SliverToBoxAdapter(child: SizedBox(height: 30)),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Future<void> _open(ContentItem item) async {
     await Navigator.of(context).push(
@@ -164,24 +157,14 @@ class _EmptyShelf extends StatelessWidget {
   const _EmptyShelf();
 
   @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(
-            Icons.bookmark_add_outlined,
-            size: 48,
-            color: AppColors.secondaryText,
-          ),
-          const SizedBox(height: 14),
-          Text('书架还是空的', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 6),
-          const Text('从书城收藏真实来源内容后会显示在这里', textAlign: TextAlign.center),
-        ],
-      ),
-    ),
+  Widget build(BuildContext context) => EmptyState(
+    icon: Icons.bookmark_add_outlined,
+    title: '书架空空如也',
+    description: '您可以去书城浏览并收藏喜爱的小说、短剧或影视内容，它们会自动同步在这里。',
+    actionLabel: '去书城逛逛',
+    onAction: () {
+      context.findAncestorStateOfType<AppShellState>()?.setIndex(1);
+    },
   );
 }
 

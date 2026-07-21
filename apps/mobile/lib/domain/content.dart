@@ -28,6 +28,8 @@ class ContentItem {
     this.sourceId = 'demo',
     this.sourceName = '演示数据',
     this.isLive = false,
+    this.chapterUrls,
+    this.localChapters,
   });
 
   final String id;
@@ -43,6 +45,8 @@ class ContentItem {
   final String sourceId;
   final String sourceName;
   final bool isLive;
+  final List<String>? chapterUrls;
+  final List<Map<String, dynamic>>? localChapters;
 
   String get unitLabel => channel == ContentChannel.novel ? '章' : '集';
 
@@ -60,6 +64,8 @@ class ContentItem {
     sourceId: sourceId,
     sourceName: sourceName,
     isLive: isLive,
+    chapterUrls: chapterUrls,
+    localChapters: localChapters,
   );
 
   factory ContentItem.fromJson(Map<String, dynamic> json) => ContentItem(
@@ -79,6 +85,10 @@ class ContentItem {
     sourceId: json['source_id'] as String? ?? 'unknown',
     sourceName: json['source_name'] as String? ?? '未知来源',
     isLive: json['is_live'] as bool? ?? false,
+    chapterUrls: (json['chapter_urls'] as List<dynamic>?)?.map((e) => e as String).toList(),
+    localChapters: (json['chapters'] as List<dynamic>?)
+        ?.map((e) => Map<String, dynamic>.from(e as Map))
+        .toList(),
   );
 
   Map<String, dynamic> toJson() => {
@@ -95,6 +105,8 @@ class ContentItem {
     'source_id': sourceId,
     'source_name': sourceName,
     'is_live': isLive,
+    if (chapterUrls != null) 'chapter_urls': chapterUrls,
+    if (localChapters != null) 'chapters': localChapters,
   };
 }
 

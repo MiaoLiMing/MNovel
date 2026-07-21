@@ -5,9 +5,12 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/channel_tabs.dart';
 import '../../core/widgets/content_cover.dart';
+import '../../core/widgets/empty_state.dart';
 import '../../data/content_repository.dart';
+import '../../data/source_store.dart';
 import '../../domain/content.dart';
 import '../detail/content_detail_page.dart';
+import '../profile/source_management_page.dart';
 
 class BookstorePage extends StatefulWidget {
   const BookstorePage({super.key, this.repository});
@@ -28,6 +31,7 @@ class _BookstorePageState extends State<BookstorePage> {
   bool _loading = true;
   String? _error;
   int _requestId = 0;
+  bool _hasSources = true;
 
   @override
   void initState() {
@@ -50,18 +54,26 @@ class _BookstorePageState extends State<BookstorePage> {
       _error = null;
     });
     try {
+      final sources = await SourceStore().list();
+      final active = sources.where((s) => s.enabled && s.channels.contains(_channel));
+      final hasSources = active.isNotEmpty;
+
       final items = await _repository.discover(_channel, query: _query);
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _items = items;
         _loading = false;
+        _hasSources = hasSources;
       });
     } on ContentRepositoryException catch (error) {
       if (!mounted || requestId != _requestId) return;
+      final sources = await SourceStore().list();
+      final active = sources.where((s) => s.enabled && s.channels.contains(_channel));
       setState(() {
         _items = const [];
         _loading = false;
         _error = error.message;
+        _hasSources = active.isNotEmpty;
       });
     }
   }
@@ -103,18 +115,17 @@ class _BookstorePageState extends State<BookstorePage> {
               padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
               sliver: SliverList(
                 delegate: SliverChildListDelegate.fixed([
-                  Text('书城', style: Theme.of(context).textTheme.headlineMedium),
-                  const SizedBox(height: 16),
                   TextField(
                     controller: _searchController,
                     onChanged: _onQueryChanged,
                     onSubmitted: (_) => unawaited(_load()),
                     textInputAction: TextInputAction.search,
                     decoration: InputDecoration(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                       hintText: _channel == ContentChannel.novel
                           ? '搜索书名或作者'
                           : '搜索片名或主创',
-                      prefixIcon: const Icon(Icons.search_rounded, size: 25),
+                      prefixIcon: const Icon(Icons.search_rounded, size: 22),
                       suffixIcon: _query.isEmpty
                           ? null
                           : IconButton(
@@ -131,21 +142,6 @@ class _BookstorePageState extends State<BookstorePage> {
                   const SizedBox(height: 10),
                   ChannelTabs(value: _channel, onChanged: _changeChannel),
                   const Divider(height: 1),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.phone_android_rounded,
-                        color: AppColors.sage,
-                        size: 17,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        '设备端直连 · 无需自建服务端',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
                 ]),
               ),
             ),
@@ -160,6 +156,9 @@ class _BookstorePageState extends State<BookstorePage> {
                 child: _EmptySearch(
                   message: _error ?? '当前真实来源没有返回内容',
                   onRetry: _load,
+                  hasSources: _hasSources,
+                  query: _query,
+                  channel: _channel,
                 ),
               )
             else ...[
@@ -350,37 +349,52 @@ class _SectionHeader extends StatelessWidget {
 }
 
 class _EmptySearch extends StatelessWidget {
-  const _EmptySearch({required this.message, required this.onRetry});
+  const _EmptySearch({
+    required this.message,
+    required this.onRetry,
+    required this.hasSources,
+    required this.query,
+    required this.channel,
+  });
 
   final String message;
   final VoidCallback onRetry;
+  final bool hasSources;
+  final String query;
+  final ContentChannel channel;
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(
-            Icons.search_off_rounded,
-            size: 44,
-            color: AppColors.secondaryText,
-          ),
-          const SizedBox(height: 12),
-          const Text('没有可展示的真实内容'),
-          const SizedBox(height: 4),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Text(message, textAlign: TextAlign.center),
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: onRetry,
-            icon: const Icon(Icons.refresh_rounded),
-            label: const Text('重新加载'),
-          ),
-        ],
-      ),
+    if (!hasSources) {
+      return EmptyState(
+        icon: Icons.explore_off_outlined,
+        title: '暂无订阅内容源',
+        description: '您尚未启用或导入任何可用的${channel.label}内容源，请前往配置。',
+        actionLabel: '前往配置内容源',
+        onAction: () {
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const SourceManagementPage()),
+          ).then((_) => onRetry());
+        },
+      );
+    }
+    
+    if (query.isNotEmpty) {
+      return EmptyState(
+        icon: Icons.search_off_rounded,
+        title: '未找到匹配结果',
+        description: '未在当前启用的数据源中找到与“$query”相关的结果，请尝试其他词。',
+        actionLabel: '重新加载',
+        onAction: onRetry,
+      );
+    }
+
+    return EmptyState(
+      icon: Icons.cloud_off_rounded,
+      title: '加载未成功',
+      description: message,
+      actionLabel: '重新加载',
+      onAction: onRetry,
     );
   }
 }

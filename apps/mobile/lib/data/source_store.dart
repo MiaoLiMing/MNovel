@@ -40,9 +40,19 @@ class SourceStore {
     if (source.builtIn || source.kind != SourceKind.json) {
       throw const FormatException('只能添加 JSON 自定义来源');
     }
-    final uri = Uri.tryParse(source.endpoint);
-    if (uri == null || !uri.isScheme('https')) {
-      throw const FormatException('来源地址必须是有效的 HTTPS URL');
+    final endpoint = source.endpoint.trim();
+    final isJsonText = endpoint.startsWith('{') || endpoint.startsWith('[');
+    if (!isJsonText) {
+      final uri = Uri.tryParse(endpoint);
+      if (uri == null || !uri.isScheme('https')) {
+        throw const FormatException('来源地址必须是有效的 HTTPS URL 或 JSON 格式文本');
+      }
+    } else {
+      try {
+        jsonDecode(endpoint);
+      } catch (_) {
+        throw const FormatException('非法的 JSON 格式文本');
+      }
     }
     final prefs = await SharedPreferences.getInstance();
     final custom = _decodeCustom(prefs.getString(_customKey));

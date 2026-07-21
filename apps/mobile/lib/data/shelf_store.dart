@@ -20,6 +20,10 @@ class ShelfStore {
     );
   }
 
+  Future<List<ContentItem>> listAll() async {
+    return _read();
+  }
+
   Future<bool> contains(String id) async {
     final items = await _read();
     return items.any((item) => item.id == id);

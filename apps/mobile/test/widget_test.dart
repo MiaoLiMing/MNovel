@@ -31,8 +31,8 @@ void main() {
     await tester.tap(find.text('内容源管理'));
     await tester.pumpAndSettle();
 
-    expect(find.text('MNovel 本地目录'), findsOneWidget);
-    expect(find.text('Project Gutenberg'), findsOneWidget);
+    expect(find.text('暂无小说内容源'), findsOneWidget);
+    expect(find.text('立即导入内容源'), findsOneWidget);
     expect(find.text('内容源管理'), findsOneWidget);
   });
 

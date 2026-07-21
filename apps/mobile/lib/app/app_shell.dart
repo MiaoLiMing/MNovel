@@ -11,11 +11,15 @@ class AppShell extends StatefulWidget {
   final int initialIndex;
 
   @override
-  State<AppShell> createState() => _AppShellState();
+  State<AppShell> createState() => AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class AppShellState extends State<AppShell> {
   late int _index = widget.initialIndex;
+
+  void setIndex(int value) {
+    setState(() => _index = value);
+  }
 
   final _pages = const <Widget>[
     ShelfPage(),

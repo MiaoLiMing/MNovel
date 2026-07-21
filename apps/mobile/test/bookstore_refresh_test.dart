@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mnovel/data/content_repository.dart';
 import 'package:mnovel/domain/content.dart';
 import 'package:mnovel/features/bookstore/bookstore_page.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _RefreshRepository extends ContentRepository {
   int calls = 0;
@@ -20,6 +21,7 @@ class _RefreshRepository extends ContentRepository {
 
 void main() {
   testWidgets('bookstore channels support pull to refresh', (tester) async {
+    SharedPreferences.setMockInitialValues({});
     final repository = _RefreshRepository();
     await tester.pumpWidget(
       MaterialApp(

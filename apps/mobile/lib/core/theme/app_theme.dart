@@ -2,11 +2,11 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 abstract class AppColors {
-  static const canvas = Color(0xFFFCFCF9);
+  static const canvas = Color(0xFFF5F5F7);
   static const surface = Color(0xFFFFFFFF);
   static const text = Color(0xFF171A18);
   static const secondaryText = Color(0xFF7B817D);
-  static const divider = Color(0xFFECEEEA);
+  static const divider = Color(0xFFE5E8EB);
   // Note: We keep the variable names 'sage' and 'sageSoft' to avoid compile errors
   // in other files, but the values are changed to a premium modern coral-red.
   static const sage = Color(0xFFE54D42);
