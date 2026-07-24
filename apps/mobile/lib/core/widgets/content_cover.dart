@@ -19,9 +19,7 @@ class ContentCover extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isAssetUrl = asset.startsWith('asset://');
-    final resolvedAsset = isAssetUrl
-        ? 'assets/covers/${asset.substring(8)}'
-        : asset;
+    final resolvedAsset = isAssetUrl ? 'assets/${asset.substring(8)}' : asset;
 
     final isNetwork =
         resolvedAsset.startsWith('http://') ||
@@ -32,6 +30,12 @@ class ContentCover extends StatelessWidget {
               ? createWebImage(resolvedAsset, width, height)
               : Image.network(
                   resolvedAsset,
+                  headers: const {
+                    'User-Agent':
+                        'Mozilla/5.0 (Linux; Android 13; Mobile) '
+                        'AppleWebKit/537.36 (KHTML, like Gecko) '
+                        'Chrome/120.0.0.0 Mobile Safari/537.36',
+                  },
                   width: width,
                   height: height,
                   fit: BoxFit.cover,

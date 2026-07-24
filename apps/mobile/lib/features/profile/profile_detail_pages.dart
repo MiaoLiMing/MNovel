@@ -56,47 +56,13 @@ const builtInSources = <BuiltInSource>[
   ),
   BuiltInSource(
     id: 'local-opds',
-    name: '本地 OPDS / JSON',
-    description: '连接 Calibre、自建书库或导入有权使用的内容',
-    channels: {
-      ContentChannel.novel,
-      ContentChannel.shortDrama,
-      ContentChannel.video,
-    },
+    name: '本地 OPDS / TXT / EPUB',
+    description: '连接 Calibre、自建书库或导入本地电子书小说内容',
+    channels: {ContentChannel.novel},
     access: SourceAccess.local,
     endpoint: 'local://source-import',
     enabled: true,
     latencyMs: 18,
-  ),
-  BuiltInSource(
-    id: 'internet-archive',
-    name: 'Internet Archive',
-    description: '公共领域电影、影像与开放馆藏元数据',
-    channels: {ContentChannel.shortDrama, ContentChannel.video},
-    access: SourceAccess.direct,
-    endpoint: 'https://archive.org/advancedsearch.php',
-    enabled: true,
-    latencyMs: 286,
-  ),
-  BuiltInSource(
-    id: 'tvmaze',
-    name: 'TVmaze 开放数据',
-    description: '全球公开电视与短剧库，无需密钥直连',
-    channels: {ContentChannel.shortDrama},
-    access: SourceAccess.direct,
-    endpoint: 'https://api.tvmaze.com',
-    enabled: true,
-    latencyMs: 145,
-  ),
-  BuiltInSource(
-    id: 'itunes',
-    name: 'iTunes 官方源',
-    description: 'iTunes 官方电影与视频目录，无需密钥直连',
-    channels: {ContentChannel.video},
-    access: SourceAccess.direct,
-    endpoint: 'https://itunes.apple.com',
-    enabled: true,
-    latencyMs: 120,
   ),
 ];
 
@@ -385,19 +351,55 @@ class _DownloadManagementPageState extends State<DownloadManagementPage> {
     final List<Map<String, dynamic>> items;
     if (type == 'novel') {
       items = [
-        {'id': 'n1', 'title': '长风问剑', 'subtitle': '缓存中 · 第 21 / 150 章', 'progress': 0.14},
-        {'id': 'n2', 'title': '星海余烬', 'subtitle': '已完成 · 共 80 章', 'progress': 1.0},
-        {'id': 'n3', 'title': '凤归长安', 'subtitle': '已暂停 · 第 42 / 100 章', 'progress': 0.42, 'paused': true},
+        {
+          'id': 'n1',
+          'title': '长风问剑',
+          'subtitle': '缓存中 · 第 21 / 150 章',
+          'progress': 0.14,
+        },
+        {
+          'id': 'n2',
+          'title': '星海余烬',
+          'subtitle': '已完成 · 共 80 章',
+          'progress': 1.0,
+        },
+        {
+          'id': 'n3',
+          'title': '凤归长安',
+          'subtitle': '已暂停 · 第 42 / 100 章',
+          'progress': 0.42,
+          'paused': true,
+        },
       ];
     } else if (type == 'shortDrama') {
       items = [
-        {'id': 'd1', 'title': '雾城回响', 'subtitle': '下载中 · 第 12 / 30 集', 'progress': 0.4},
-        {'id': 'd2', 'title': '远山之下', 'subtitle': '已完成 · 共 10 集', 'progress': 1.0},
+        {
+          'id': 'd1',
+          'title': '雾城回响',
+          'subtitle': '下载中 · 第 12 / 30 集',
+          'progress': 0.4,
+        },
+        {
+          'id': 'd2',
+          'title': '远山之下',
+          'subtitle': '已完成 · 共 10 集',
+          'progress': 1.0,
+        },
       ];
     } else {
       items = [
-        {'id': 'm1', 'title': '斗罗大陆 (漫画版)', 'subtitle': '已完成 · 共 34 话', 'progress': 1.0},
-        {'id': 'm2', 'title': '一人之下', 'subtitle': '下载中 · 第 5 / 120 话', 'progress': 0.04},
+        {
+          'id': 'm1',
+          'title': '斗罗大陆 (漫画版)',
+          'subtitle': '已完成 · 共 34 话',
+          'progress': 1.0,
+        },
+        {
+          'id': 'm2',
+          'title': '一人之下',
+          'subtitle': '下载中 · 第 5 / 120 话',
+          'progress': 0.04,
+        },
       ];
     }
 
@@ -407,7 +409,9 @@ class _DownloadManagementPageState extends State<DownloadManagementPage> {
       itemBuilder: (context, index) {
         final item = items[index];
         final id = '${type}_${item['id']}';
-        final isPaused = _paused.contains(id) || (item['paused'] == true && !_paused.contains('${id}_active'));
+        final isPaused =
+            _paused.contains(id) ||
+            (item['paused'] == true && !_paused.contains('${id}_active'));
         final progress = item['progress'] as double;
         final completed = progress >= 1.0;
 
@@ -426,10 +430,16 @@ class _DownloadManagementPageState extends State<DownloadManagementPage> {
                 Row(
                   children: [
                     CircleAvatar(
-                      backgroundColor: completed ? AppColors.sageSoft : const Color(0xFFF1F3F5),
+                      backgroundColor: completed
+                          ? AppColors.sageSoft
+                          : const Color(0xFFF1F3F5),
                       child: Icon(
-                        completed ? Icons.download_done_rounded : Icons.downloading_rounded,
-                        color: completed ? AppColors.sage : AppColors.secondaryText,
+                        completed
+                            ? Icons.download_done_rounded
+                            : Icons.downloading_rounded,
+                        color: completed
+                            ? AppColors.sage
+                            : AppColors.secondaryText,
                       ),
                     ),
                     const SizedBox(width: 14),
@@ -439,22 +449,23 @@ class _DownloadManagementPageState extends State<DownloadManagementPage> {
                         children: [
                           Text(
                             item['title'] as String,
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w700),
                           ),
                           const SizedBox(height: 3),
                           Text(
                             completed
                                 ? '下载完成'
                                 : isPaused
-                                    ? '已暂停'
-                                    : item['subtitle'] as String,
+                                ? '已暂停'
+                                : item['subtitle'] as String,
                             style: TextStyle(
                               fontSize: 12,
                               color: completed
                                   ? AppColors.sage
                                   : isPaused
-                                      ? AppColors.danger
-                                      : AppColors.secondaryText,
+                                  ? AppColors.danger
+                                  : AppColors.secondaryText,
                             ),
                           ),
                         ],
@@ -474,7 +485,9 @@ class _DownloadManagementPageState extends State<DownloadManagementPage> {
                           });
                         },
                         icon: Icon(
-                          isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                          isPaused
+                              ? Icons.play_arrow_rounded
+                              : Icons.pause_rounded,
                           color: AppColors.sage,
                         ),
                       ),
@@ -613,16 +626,18 @@ class _CacheManagementPageState extends State<CacheManagementPage> {
       await prefs.remove('content.sources.enabled.v1');
     } else {
       for (final k in prefs.getKeys()) {
-        if (k != 'reading.progress.v1' && k != 'shelf.items.v1' && k != 'content.sources.custom.v1') {
+        if (k != 'reading.progress.v1' &&
+            k != 'shelf.items.v1' &&
+            k != 'content.sources.custom.v1') {
           await prefs.remove(k);
         }
       }
     }
     await _loadCacheSizes();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已清理 $key')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('已清理 $key')));
   }
 
   Future<void> _clearAll() async {
@@ -630,9 +645,9 @@ class _CacheManagementPageState extends State<CacheManagementPage> {
     await prefs.clear();
     await _loadCacheSizes();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已成功清理全部缓存数据')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('已成功清理全部缓存数据')));
   }
 
   @override
@@ -646,7 +661,10 @@ class _CacheManagementPageState extends State<CacheManagementPage> {
               padding: const EdgeInsets.all(20),
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 24,
+                    horizontal: 20,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.sageSoft,
                     borderRadius: BorderRadius.circular(20),
@@ -654,11 +672,19 @@ class _CacheManagementPageState extends State<CacheManagementPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('已用存储空间', style: TextStyle(color: AppColors.sage, fontSize: 13, fontWeight: FontWeight.w600)),
+                      const Text(
+                        '已用存储空间',
+                        style: TextStyle(
+                          color: AppColors.sage,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                       const SizedBox(height: 6),
                       Text(
                         '${total.toStringAsFixed(2)} MB',
-                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        style: Theme.of(context).textTheme.headlineMedium
+                            ?.copyWith(
                               color: AppColors.sage,
                               fontWeight: FontWeight.w800,
                             ),
@@ -670,7 +696,10 @@ class _CacheManagementPageState extends State<CacheManagementPage> {
                 ..._sizes.entries.map(
                   (entry) => ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text(entry.key, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    title: Text(
+                      entry.key,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
                     subtitle: Text('${entry.value.toStringAsFixed(3)} MB'),
                     trailing: TextButton(
                       onPressed: entry.value <= 0.05
@@ -690,9 +719,14 @@ class _CacheManagementPageState extends State<CacheManagementPage> {
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       side: const BorderSide(color: AppColors.sage),
                       foregroundColor: AppColors.sage,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(100),
+                      ),
                     ),
-                    label: const Text('清理全部可清理缓存', style: TextStyle(fontWeight: FontWeight.w600)),
+                    label: const Text(
+                      '清理全部可清理缓存',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
                   ),
                 ),
               ],
@@ -723,7 +757,7 @@ class _HistoryPageState extends State<HistoryPage> {
   Future<void> _loadHistory() async {
     final progressMap = await _progressStore.getAllProgress();
     final allItems = await _shelfStore.listAll();
-    
+
     final List<ContentItem> items = [];
     for (final item in allItems) {
       if (progressMap.containsKey(item.id)) {
@@ -747,52 +781,66 @@ class _HistoryPageState extends State<HistoryPage> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _historyItems.isEmpty
-              ? const EmptyState(
-                  icon: Icons.history_rounded,
-                  title: '暂无阅读/观看记录',
-                  description: '您目前还没有开始阅读小说或播放视频，快去书城看看吧！',
-                )
-              : ListView.separated(
-                  padding: const EdgeInsets.all(18),
-                  itemCount: _historyItems.length,
-                  separatorBuilder: (context, index) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    final item = _historyItems[index];
-                    return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(vertical: 4),
-                      leading: ContentCover(
-                        asset: item.coverAsset,
-                        width: 48,
-                        height: 64,
-                        radius: 6,
-                      ),
-                      title: Text(item.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                      subtitle: Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          '${item.category} · 已完成 ${(item.progress * 100).round()}%',
-                          style: const TextStyle(fontSize: 12),
+          ? const EmptyState(
+              icon: Icons.history_rounded,
+              title: '暂无阅读/观看记录',
+              description: '您目前还没有开始阅读小说或播放视频，快去书城看看吧！',
+            )
+          : ListView.separated(
+              padding: const EdgeInsets.all(18),
+              itemCount: _historyItems.length,
+              separatorBuilder: (context, index) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                final item = _historyItems[index];
+                return ListTile(
+                  contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                  leading: ContentCover(
+                    asset: item.coverAsset,
+                    width: 48,
+                    height: 64,
+                    radius: 6,
+                  ),
+                  title: Text(
+                    item.title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  subtitle: Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      '${item.category} · 已完成 ${(item.progress * 100).round()}%',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                  trailing: FilledButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => ContentDetailPage(item: item),
                         ),
+                      ).then((_) => _loadHistory());
+                    },
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(100),
                       ),
-                      trailing: FilledButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (_) => ContentDetailPage(item: item),
-                            ),
-                          ).then((_) => _loadHistory());
-                        },
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
-                          backgroundColor: AppColors.sage,
-                        ),
-                        child: const Text('继续', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      backgroundColor: AppColors.sage,
+                    ),
+                    child: const Text(
+                      '继续',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
                       ),
-                    );
-                  },
-                ),
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 }

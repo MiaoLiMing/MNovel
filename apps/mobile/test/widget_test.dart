@@ -7,36 +7,33 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'fixtures/demo_repository.dart';
 
 void main() {
-  testWidgets('书城默认展示四栏导航与三频道', (tester) async {
+  testWidgets('主导航完整展示书架、书城、分类和我的', (tester) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(const MNovelApp());
-    await tester.pump(const Duration(milliseconds: 500));
-
-    expect(find.text('书城'), findsWidgets);
-    expect(find.text('书架'), findsWidgets);
-    expect(find.text('分类'), findsWidgets);
-    expect(find.text('我的'), findsWidgets);
-    expect(find.text('小说'), findsWidgets);
-    expect(find.text('短剧'), findsWidgets);
-    expect(find.text('影视'), findsWidgets);
-  });
-
-  testWidgets('我的内容与存储入口可以进入明细页', (tester) async {
-    SharedPreferences.setMockInitialValues({});
-    await tester.pumpWidget(const MNovelApp());
-    await tester.pump(const Duration(milliseconds: 500));
-
-    await tester.tap(find.text('我的').last);
-    await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(find.text('内容源管理'));
     await tester.pumpAndSettle();
 
-    expect(find.text('暂无小说内容源'), findsOneWidget);
-    expect(find.text('立即导入内容源'), findsOneWidget);
-    expect(find.text('内容源管理'), findsOneWidget);
+    expect(find.text('书架'), findsWidgets);
+    expect(find.text('书城'), findsOneWidget);
+    expect(find.text('分类'), findsOneWidget);
+    expect(find.text('我的'), findsOneWidget);
+    expect(find.text('最近阅读'), findsOneWidget);
   });
 
-  testWidgets('阅读器控制栏联动并打开完整设置', (tester) async {
+  testWidgets('我的页面可以进入书源管理', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(const MNovelApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('书源管理'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('起点中文网'), findsOneWidget);
+    expect(find.text('添加书源'), findsOneWidget);
+  });
+
+  testWidgets('阅读器控制栏可以打开完整设置', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -51,17 +48,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tapAt(const Offset(200, 320));
-    await tester.pumpAndSettle();
     expect(find.text('上一章'), findsOneWidget);
     expect(find.text('下一章'), findsOneWidget);
-
     await tester.tap(find.byIcon(Icons.text_fields_rounded));
     await tester.pumpAndSettle();
     expect(find.text('阅读设置'), findsOneWidget);
-    expect(find.text('亮度'), findsOneWidget);
-    expect(find.text('翻页'), findsOneWidget);
-    expect(find.text('自动翻页'), findsOneWidget);
+    expect(find.text('字体大小'), findsOneWidget);
+    expect(find.text('行间距'), findsOneWidget);
+    expect(find.text('翻页动画'), findsOneWidget);
+    expect(find.text('简繁转换'), findsOneWidget);
   });
 
   testWidgets('阅读器左滑跨越章节边界', (tester) async {
@@ -79,10 +74,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('第 1 章'), findsOneWidget);
+    expect(find.text('第 1 章  风从远山来'), findsOneWidget);
     await tester.drag(find.byType(PageView), const Offset(-340, 0));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('第 2 章'), findsOneWidget);
+    expect(find.text('第 2 章  风从远山来'), findsOneWidget);
   });
 }

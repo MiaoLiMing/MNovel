@@ -43,6 +43,11 @@ class ReadingProgressStore {
     return _read();
   }
 
+  Future<void> replaceAll(Map<String, dynamic> values) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_key, jsonEncode(values));
+  }
+
   Future<Map<String, dynamic>> _read() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_key);

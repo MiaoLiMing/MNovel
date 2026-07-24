@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../app/app_shell.dart';
 import '../../core/theme/app_theme.dart';
-import '../../data/shelf_store.dart';
 import '../../data/reading_progress_store.dart';
+import '../../data/shelf_store.dart';
 import '../../data/source_store.dart';
+import '../../domain/content.dart';
+import 'backup_restore_page.dart';
 import 'profile_detail_pages.dart';
+import 'settings_page.dart';
 import 'source_management_page.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -17,14 +19,12 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  bool _autoSwitch = true;
-  bool _wifiOnly = true;
-
-  int _favCount = 0;
+  int _shelfCount = 0;
   int _historyCount = 0;
-  double _cacheSize = 12.4;
+  int _completedCount = 0;
   int _sourceCount = 0;
-  int _activeSourceCount = 0;
+  double _readingHours = 0;
+  double _cacheSize = 0;
   bool _loading = true;
 
   @override
@@ -33,39 +33,43 @@ class _ProfilePageState extends State<ProfilePage> {
     _loadData();
   }
 
-  Future<double> _calculateCacheSize() async {
-    final prefs = await SharedPreferences.getInstance();
-    final keys = prefs.getKeys();
-    int totalBytes = 0;
-    for (final key in keys) {
-      final value = prefs.get(key);
-      if (value is String) {
-        totalBytes += value.length * 2;
-      } else if (value is bool) {
-        totalBytes += 4;
-      } else if (value is int) {
-        totalBytes += 8;
-      }
-    }
-    final dynamicSizeKb = totalBytes / 1024.0;
-    return 12.4 + (dynamicSizeKb / 1024.0); // Baseline 12.4 MB
-  }
-
   Future<void> _loadData() async {
-    final favs = await ShelfStore().listAll();
+    final shelf = await ShelfStore().listAll();
     final progress = await ReadingProgressStore().getAllProgress();
-    final cache = await _calculateCacheSize();
     final sources = await SourceStore().list();
-    final activeSources = sources.where((s) => s.enabled);
+    final cacheSize = await _calculateCacheSize();
     if (!mounted) return;
     setState(() {
-      _favCount = favs.length;
+      _shelfCount = shelf.length;
       _historyCount = progress.length;
-      _cacheSize = cache;
+      _completedCount = progress.values.where((value) {
+        if (value is! Map) return false;
+        return ((value['ratio'] as num?)?.toDouble() ?? 0) >= .98;
+      }).length;
+      _readingHours = progress.values.fold<double>(0, (sum, value) {
+        if (value is! Map) return sum;
+        final chapter = (value['chapter_index'] as num?)?.toInt() ?? 0;
+        final ratio = (value['ratio'] as num?)?.toDouble() ?? 0;
+        return sum + chapter * .08 + ratio * .6;
+      });
       _sourceCount = sources.length;
-      _activeSourceCount = activeSources.length;
+      _cacheSize = cacheSize;
       _loading = false;
     });
+  }
+
+  Future<double> _calculateCacheSize() async {
+    final prefs = await SharedPreferences.getInstance();
+    var bytes = 0;
+    for (final key in prefs.getKeys()) {
+      final value = prefs.get(key);
+      if (value is String) {
+        bytes += value.length * 2;
+      } else {
+        bytes += 8;
+      }
+    }
+    return bytes / 1024 / 1024;
   }
 
   void _open(Widget page) {
@@ -74,192 +78,331 @@ class _ProfilePageState extends State<ProfilePage> {
         .then((_) => _loadData());
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      bottom: false,
-      child: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 28),
+  Future<void> _importLocalBook() async {
+    final titleController = TextEditingController();
+    final authorController = TextEditingController();
+    final contentController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('导入本地小说'),
+        content: SizedBox(
+          width: 360,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                // Premium User Profile Header Card
-                Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: AppColors.sageSoft,
-                    borderRadius: BorderRadius.circular(22),
+                TextField(
+                  controller: titleController,
+                  decoration: const InputDecoration(labelText: '书名'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: authorController,
+                  decoration: const InputDecoration(labelText: '作者'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: contentController,
+                  minLines: 6,
+                  maxLines: 10,
+                  decoration: const InputDecoration(
+                    labelText: '正文',
+                    hintText: '粘贴 TXT 内容，空行将分隔段落',
                   ),
-                  child: Row(
-                    children: [
-                      const CircleAvatar(
-                        radius: 26,
-                        backgroundImage: AssetImage('assets/logo.png'),
-                        backgroundColor: Colors.transparent,
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '李明',
-                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.text,
-                                  ),
-                            ),
-                            const SizedBox(height: 3),
-                            const Text(
-                              '尊享会员 · 本地优先无广告',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: AppColors.secondaryText,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(Icons.verified_user_rounded, color: AppColors.sage, size: 24),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 18),
-                
-                // Interactive Statistics Row
-                Row(
-                  children: [
-                    Expanded(
-                      child: InkWell(
-                        onTap: () {
-                          // Navigate to Shelf Tab
-                          context.findAncestorStateOfType<AppShellState>()?.setIndex(0);
-                        },
-                        borderRadius: BorderRadius.circular(12),
-                        child: _Metric(value: '$_favCount', label: '收藏'),
-                      ),
-                    ),
-                    Expanded(
-                      child: InkWell(
-                        onTap: () => _open(const HistoryPage()),
-                        borderRadius: BorderRadius.circular(12),
-                        child: _Metric(value: '$_historyCount 项', label: '阅读观看'),
-                      ),
-                    ),
-                    Expanded(
-                      child: InkWell(
-                        onTap: () => _open(const CacheManagementPage()),
-                        borderRadius: BorderRadius.circular(12),
-                        child: _Metric(value: '${_cacheSize.toStringAsFixed(1)} M', label: '本地缓存'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 26),
-                
-                Text('内容与存储', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-                _SettingTile(
-                  icon: Icons.hub_outlined,
-                  title: '内容源管理',
-                  subtitle: '$_sourceCount 个来源 · $_activeSourceCount 个已启用',
-                  onTap: () => _open(const SourceManagementPage()),
-                ),
-                _SettingTile(
-                  icon: Icons.download_outlined,
-                  title: '下载管理',
-                  subtitle: '分频道离线缓存',
-                  onTap: () => _open(const DownloadManagementPage()),
-                ),
-                _SettingTile(
-                  icon: Icons.sync_rounded,
-                  title: 'WebDAV 备份',
-                  subtitle: '云端同步与还原',
-                  onTap: () => _open(const WebDavPage()),
-                ),
-                _SettingTile(
-                  icon: Icons.cleaning_services_outlined,
-                  title: '缓存管理',
-                  subtitle: '可清理 ${_cacheSize.toStringAsFixed(2)} MB',
-                  onTap: () => _open(const CacheManagementPage()),
-                ),
-                const SizedBox(height: 22),
-                
-                Text('偏好设置', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  activeThumbColor: AppColors.sage,
-                  title: const Text('加载失败时自动换源'),
-                  subtitle: const Text('切换前会保留当前阅读或播放位置'),
-                  value: _autoSwitch,
-                  onChanged: (value) => setState(() => _autoSwitch = value),
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  activeThumbColor: AppColors.sage,
-                  title: const Text('仅 Wi-Fi 自动下载'),
-                  value: _wifiOnly,
-                  onChanged: (value) => setState(() => _wifiOnly = value),
                 ),
               ],
             ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('导入'),
+          ),
+        ],
+      ),
     );
+    if (confirmed != true) {
+      titleController.dispose();
+      authorController.dispose();
+      contentController.dispose();
+      return;
+    }
+    final title = titleController.text.trim();
+    final author = authorController.text.trim();
+    final paragraphs = contentController.text
+        .split(RegExp(r'\r?\n\s*\r?\n'))
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+    titleController.dispose();
+    authorController.dispose();
+    contentController.dispose();
+    if (title.isEmpty || paragraphs.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请填写书名并粘贴正文')));
+      return;
+    }
+    final item = ContentItem(
+      id: 'local-${DateTime.now().millisecondsSinceEpoch}',
+      title: title,
+      creator: author.isEmpty ? '本地作者' : author,
+      category: '本地导入',
+      summary: paragraphs.first,
+      coverAsset: '',
+      popularity: '本地书籍',
+      progress: 0,
+      episodeCount: 1,
+      sourceId: 'local-import',
+      sourceName: '本地导入',
+      localChapters: [
+        {'title': '正文', 'paragraphs': paragraphs},
+      ],
+      tags: const ['本地'],
+      sourceLabels: const ['本地导入'],
+      wordCount: paragraphs.join().length,
+    );
+    await ShelfStore().add(item);
+    if (!mounted) return;
+    await _loadData();
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('《$title》已加入书架')));
   }
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    bottom: false,
+    child: _loading
+        ? const Center(child: CircularProgressIndicator())
+        : ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+            children: [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(AppRadii.large),
+                  border: Border.all(color: AppColors.divider, width: .7),
+                ),
+                child: Row(
+                  children: [
+                    const CircleAvatar(
+                      radius: 26,
+                      backgroundColor: AppColors.sand,
+                      backgroundImage: AssetImage(
+                        'assets/design/reader-avatar.png',
+                      ),
+                    ),
+                    const SizedBox(width: 13),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '清风读书',
+                            style: TextStyle(
+                              color: AppColors.text,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            '专注阅读 · 享受文字',
+                            style: TextStyle(
+                              color: AppColors.tertiaryText,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      color: AppColors.tertiaryText,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(AppRadii.medium),
+                ),
+                child: Row(
+                  children: [
+                    _Metric(value: '$_shelfCount', label: '书架'),
+                    _Metric(
+                      value: '${_readingHours.toStringAsFixed(1)}h',
+                      label: '阅读时长',
+                    ),
+                    _Metric(value: '$_completedCount', label: '完本'),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              _MenuCard(
+                children: [
+                  _MenuTile(
+                    icon: Icons.history_rounded,
+                    title: '阅读历史',
+                    subtitle: '$_historyCount 条记录',
+                    onTap: () => _open(const HistoryPage()),
+                  ),
+                  _MenuTile(
+                    icon: Icons.hub_outlined,
+                    title: '书源管理',
+                    subtitle: '$_sourceCount 个来源',
+                    onTap: () => _open(const SourceManagementPage()),
+                  ),
+                  _MenuTile(
+                    icon: Icons.inventory_2_outlined,
+                    title: '缓存管理',
+                    subtitle: '已用 ${_cacheSize.toStringAsFixed(2)} MB',
+                    onTap: () => _open(const CacheManagementPage()),
+                  ),
+                  _MenuTile(
+                    icon: Icons.cloud_upload_outlined,
+                    title: '备份与恢复',
+                    onTap: () => _open(const BackupRestorePage()),
+                  ),
+                  _MenuTile(
+                    icon: Icons.note_add_outlined,
+                    title: '导入本地书籍',
+                    onTap: _importLocalBook,
+                  ),
+                  _MenuTile(
+                    icon: Icons.settings_outlined,
+                    title: '设置',
+                    onTap: () => _open(const SettingsPage()),
+                    isLast: true,
+                  ),
+                ],
+              ),
+            ],
+          ),
+  );
 }
 
 class _Metric extends StatelessWidget {
   const _Metric({required this.value, required this.label});
+
   final String value;
   final String label;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 8),
+  Widget build(BuildContext context) => Expanded(
     child: Column(
       children: [
         Text(
           value,
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: AppColors.sage,
-              ),
+          style: const TextStyle(
+            color: AppColors.text,
+            fontSize: 14,
+            fontWeight: FontWeight.w800,
+          ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 3),
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: AppColors.secondaryText,
-          ),
+          style: const TextStyle(color: AppColors.tertiaryText, fontSize: 9),
         ),
       ],
     ),
   );
 }
 
-class _SettingTile extends StatelessWidget {
-  const _SettingTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
+class _MenuCard extends StatelessWidget {
+  const _MenuCard({required this.children});
+
+  final List<Widget> children;
 
   @override
-  Widget build(BuildContext context) => ListTile(
-    contentPadding: EdgeInsets.zero,
-    leading: CircleAvatar(
-      backgroundColor: AppColors.sageSoft,
-      child: Icon(icon, color: AppColors.sage, size: 20),
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(AppRadii.large),
+      border: Border.all(color: AppColors.divider, width: .7),
     ),
-    title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-    subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
-    trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+    child: Column(children: children),
+  );
+}
+
+class _MenuTile extends StatelessWidget {
+  const _MenuTile({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+    this.subtitle,
+    this.isLast = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final VoidCallback onTap;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    borderRadius: BorderRadius.vertical(
+      top: title == '阅读历史'
+          ? const Radius.circular(AppRadii.large)
+          : Radius.zero,
+      bottom: isLast ? const Radius.circular(AppRadii.large) : Radius.zero,
+    ),
     onTap: onTap,
+    child: Container(
+      height: 54,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        border: isLast
+            ? null
+            : const Border(
+                bottom: BorderSide(color: AppColors.divider, width: .7),
+              ),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: AppColors.secondaryText, size: 19),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(
+                color: AppColors.text,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          if (subtitle != null)
+            Text(
+              subtitle!,
+              style: const TextStyle(
+                color: AppColors.tertiaryText,
+                fontSize: 9,
+              ),
+            ),
+          const SizedBox(width: 5),
+          const Icon(
+            Icons.chevron_right_rounded,
+            color: AppColors.tertiaryText,
+            size: 18,
+          ),
+        ],
+      ),
+    ),
   );
 }

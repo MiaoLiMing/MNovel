@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../domain/content.dart';
+import 'curated_catalog.dart';
 import 'reading_progress_store.dart';
 
 class ShelfStore {
@@ -15,7 +16,9 @@ class ShelfStore {
     return Future.wait(
       channelItems.map((item) async {
         final progress = await _progressStore.load(item.id);
-        return item.copyWith(progress: progress.ratio);
+        return item.copyWith(
+          progress: progress.ratio > 0 ? progress.ratio : item.progress,
+        );
       }),
     );
   }
@@ -42,10 +45,17 @@ class ShelfStore {
     await _write(items);
   }
 
+  Future<void> replaceAll(List<ContentItem> items) => _write(items);
+
   Future<List<ContentItem>> _read() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_key);
-    if (raw == null || raw.isEmpty) return [];
+    if (raw == null) {
+      final initial = curatedCatalog.take(4).toList(growable: false);
+      await _write(initial);
+      return initial;
+    }
+    if (raw.isEmpty) return [];
     try {
       final values = jsonDecode(raw) as List<dynamic>;
       return values

@@ -3,14 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/channel_tabs.dart';
 import '../../core/widgets/content_cover.dart';
-import '../../core/widgets/empty_state.dart';
+import '../../core/widgets/novel_widgets.dart';
 import '../../data/content_repository.dart';
-import '../../data/source_store.dart';
 import '../../domain/content.dart';
+import '../category/category_page.dart';
 import '../detail/content_detail_page.dart';
-import '../profile/source_management_page.dart';
+import '../search/search_page.dart';
+import 'discover_list_page.dart';
 
 class BookstorePage extends StatefulWidget {
   const BookstorePage({super.key, this.repository});
@@ -22,379 +22,519 @@ class BookstorePage extends StatefulWidget {
 }
 
 class _BookstorePageState extends State<BookstorePage> {
+  static const _channels = ['推荐', '男生', '女生', '出版'];
+
   late final ContentRepository _repository;
-  final _searchController = TextEditingController();
-  ContentChannel _channel = ContentChannel.novel;
-  String _query = '';
-  List<ContentItem> _items = const [];
-  Timer? _searchDebounce;
+  final _carouselController = PageController();
+  String _channel = _channels.first;
+  HomeData? _data;
   bool _loading = true;
   String? _error;
-  int _requestId = 0;
-  bool _hasSources = true;
+  int _carouselIndex = 0;
+  int _pickOffset = 0;
+  Timer? _carouselTimer;
 
   @override
   void initState() {
     super.initState();
     _repository = widget.repository ?? ContentRepository();
     unawaited(_load());
+    _carouselTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      final data = _data;
+      if (!mounted || data == null || data.carousel.length < 2) return;
+      final next = (_carouselIndex + 1) % data.carousel.length;
+      _carouselController.animateToPage(
+        next,
+        duration: const Duration(milliseconds: 380),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   @override
   void dispose() {
-    _searchDebounce?.cancel();
-    _searchController.dispose();
+    _carouselTimer?.cancel();
+    _carouselController.dispose();
     super.dispose();
   }
 
-  Future<void> _load({bool showLoading = true}) async {
-    final requestId = ++_requestId;
-    setState(() {
-      if (showLoading) _loading = true;
-      _error = null;
-    });
-    try {
-      final sources = await SourceStore().list();
-      final active = sources.where((s) => s.enabled && s.channels.contains(_channel));
-      final hasSources = active.isNotEmpty;
-
-      final items = await _repository.discover(_channel, query: _query);
-      if (!mounted || requestId != _requestId) return;
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) {
       setState(() {
-        _items = items;
-        _loading = false;
-        _hasSources = hasSources;
+        _loading = true;
+        _error = null;
       });
-    } on ContentRepositoryException catch (error) {
-      if (!mounted || requestId != _requestId) return;
-      final sources = await SourceStore().list();
-      final active = sources.where((s) => s.enabled && s.channels.contains(_channel));
+    }
+    try {
+      final data = await _repository.home(channel: _channel);
+      if (!mounted) return;
       setState(() {
-        _items = const [];
+        _data = data;
         _loading = false;
-        _error = error.message;
-        _hasSources = active.isNotEmpty;
+        _error = null;
+        _carouselIndex = 0;
+        _pickOffset = 0;
+      });
+      if (_carouselController.hasClients) _carouselController.jumpToPage(0);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = '书城加载失败，请检查网络后重试';
       });
     }
   }
 
-  void _onQueryChanged(String value) {
-    setState(() => _query = value);
-    _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 420), _load);
-  }
-
-  void _changeChannel(ContentChannel value) {
-    setState(() {
-      _channel = value;
-      _query = '';
-      _searchController.clear();
-    });
+  void _changeChannel(String value) {
+    if (_channel == value) return;
+    setState(() => _channel = value);
     unawaited(_load());
   }
 
   void _open(ContentItem item) {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => ContentDetailPage(item: item)));
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ContentDetailPage(item: item, repository: _repository),
+      ),
+    );
+  }
+
+  void _openSearch() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SearchPage(repository: _repository),
+      ),
+    );
+  }
+
+  void _openCategory(String category) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CategoryPage(
+          initialCategory: category,
+          standalone: true,
+          repository: _repository,
+        ),
+      ),
+    );
+  }
+
+  void _openList(String title, List<ContentItem> items) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => DiscoverListPage(
+          channel: ContentChannel.novel,
+          title: title,
+          listType: title == '精选推荐' ? 'featured' : 'ranking',
+          repository: _repository,
+          initialItems: items,
+        ),
+      ),
+    );
   }
 
   @override
-  Widget build(BuildContext context) {
-    final items = _items;
-
-    return SafeArea(
-      bottom: false,
-      child: RefreshIndicator(
-        onRefresh: () => _load(showLoading: false),
-        child: CustomScrollView(
-          key: PageStorageKey('bookstore-scroll-${_channel.name}'),
-          physics: const AlwaysScrollableScrollPhysics(),
-          slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate.fixed([
-                  TextField(
-                    controller: _searchController,
-                    onChanged: _onQueryChanged,
-                    onSubmitted: (_) => unawaited(_load()),
-                    textInputAction: TextInputAction.search,
-                    decoration: InputDecoration(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      hintText: _channel == ContentChannel.novel
-                          ? '搜索书名或作者'
-                          : '搜索片名或主创',
-                      prefixIcon: const Icon(Icons.search_rounded, size: 22),
-                      suffixIcon: _query.isEmpty
-                          ? null
-                          : IconButton(
-                              tooltip: '清空搜索',
-                              onPressed: () {
-                                _searchController.clear();
-                                setState(() => _query = '');
-                                unawaited(_load());
-                              },
-                              icon: const Icon(Icons.close_rounded),
-                            ),
+  Widget build(BuildContext context) => SafeArea(
+    bottom: false,
+    child: RefreshIndicator(
+      color: AppColors.coral,
+      onRefresh: () => _load(silent: true),
+      child: CustomScrollView(
+        key: const PageStorageKey('bookstore-scroll'),
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+            sliver: SliverList.list(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: SizedBox(
+                        height: 48,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _channels.length,
+                          separatorBuilder: (_, _) => const SizedBox(width: 20),
+                          itemBuilder: (context, index) {
+                            final channel = _channels[index];
+                            final selected = channel == _channel;
+                            return InkWell(
+                              onTap: () => _changeChannel(channel),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    channel,
+                                    style: TextStyle(
+                                      color: selected
+                                          ? AppColors.text
+                                          : AppColors.secondaryText,
+                                      fontSize: selected ? 15 : 13,
+                                      fontWeight: selected
+                                          ? FontWeight.w800
+                                          : FontWeight.w500,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 5),
+                                  AnimatedContainer(
+                                    duration: const Duration(milliseconds: 180),
+                                    width: selected ? 20 : 0,
+                                    height: 2,
+                                    decoration: BoxDecoration(
+                                      color: AppColors.coral,
+                                      borderRadius: BorderRadius.circular(99),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  ChannelTabs(value: _channel, onChanged: _changeChannel),
-                  const Divider(height: 1),
-                ]),
-              ),
-            ),
-            if (_loading)
-              const SliverFillRemaining(
-                hasScrollBody: false,
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (items.isEmpty)
-              SliverFillRemaining(
-                hasScrollBody: false,
-                child: _EmptySearch(
-                  message: _error ?? '当前真实来源没有返回内容',
-                  onRetry: _load,
-                  hasSources: _hasSources,
-                  query: _query,
-                  channel: _channel,
+                    IconButton(
+                      tooltip: '搜索小说',
+                      onPressed: _openSearch,
+                      icon: const Icon(Icons.search_rounded, size: 20),
+                    ),
+                  ],
                 ),
-              )
-            else ...[
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
-                  child: _SectionHeader(
-                    title: _channel == ContentChannel.novel ? '今日精选' : '正在热播',
+                const SizedBox(height: 8),
+                if (_loading)
+                  const SizedBox(
+                    height: 170,
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (_error != null)
+                  _LoadError(message: _error!, onRetry: _load)
+                else ...[
+                  _HeroCarousel(
+                    items: _data!.carousel,
+                    controller: _carouselController,
+                    currentIndex: _carouselIndex,
+                    onPageChanged: (value) =>
+                        setState(() => _carouselIndex = value),
+                    onTap: _open,
+                  ),
+                  const SizedBox(height: 15),
+                  _QuickCategories(onTap: _openCategory),
+                  const SizedBox(height: 20),
+                  SectionTitle(
+                    title: '精选推荐',
+                    action: '换一换',
+                    onAction: _rotatePicks,
+                  ),
+                  const SizedBox(height: 8),
+                  _PickGrid(items: _visiblePicks(), onTap: _open),
+                  const SizedBox(height: 18),
+                  SectionTitle(
+                    title: '最近上新',
                     action: '更多',
+                    onAction: () => _openList('最近上新', _data!.latest),
                   ),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: SizedBox(
-                  height: 292,
-                  child: ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 18),
-                    scrollDirection: Axis.horizontal,
-                    itemCount: items.take(3).length,
-                    separatorBuilder: (context, index) =>
-                        const SizedBox(width: 14),
-                    itemBuilder: (context, index) {
-                      final item = items[index];
-                      return _FeaturedCard(
-                        item: item,
-                        onTap: () => _open(item),
-                      );
-                    },
-                  ),
-                ),
-              ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-                sliver: SliverToBoxAdapter(
-                  child: _SectionHeader(
-                    title: _channel == ContentChannel.novel ? '热门榜单' : '热度榜单',
-                    action: '完整榜单',
-                  ),
-                ),
-              ),
-              SliverList(
-                delegate: SliverChildBuilderDelegate((context, index) {
-                  final item = items[index % items.length];
-                  return _RankingRow(
-                    index: index,
-                    item: item,
-                    onTap: () => _open(item),
-                  );
-                }, childCount: items.length < 5 ? 5 : items.length),
-              ),
-              const SliverToBoxAdapter(child: SizedBox(height: 24)),
-            ],
-          ],
-        ),
+                  const SizedBox(height: 4),
+                  ..._data!.latest
+                      .take(4)
+                      .map(
+                        (item) => NovelListRow(
+                          item: item,
+                          compact: true,
+                          onTap: () => _open(item),
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: AppColors.tertiaryText,
+                            size: 18,
+                          ),
+                        ),
+                      ),
+                ],
+                const SizedBox(height: 28),
+              ],
+            ),
+          ),
+        ],
       ),
+    ),
+  );
+
+  List<ContentItem> _visiblePicks() {
+    final picks = _data!.editorsPick;
+    if (picks.isEmpty) return _data!.carousel.take(4).toList();
+    return List.generate(
+      picks.length.clamp(0, 4),
+      (index) => picks[(_pickOffset + index) % picks.length],
     );
+  }
+
+  void _rotatePicks() {
+    final length = _data?.editorsPick.length ?? 0;
+    if (length < 2) return;
+    setState(() => _pickOffset = (_pickOffset + 1) % length);
   }
 }
 
-class _FeaturedCard extends StatelessWidget {
-  const _FeaturedCard({required this.item, required this.onTap});
-
-  final ContentItem item;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 132,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Hero(
-              tag: 'cover-${item.id}',
-              child: ContentCover(
-                asset: item.coverAsset,
-                width: 132,
-                height: 176,
-              ),
-            ),
-            const SizedBox(height: 9),
-            Text(
-              item.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            Text(item.category, maxLines: 1, overflow: TextOverflow.ellipsis),
-            const SizedBox(height: 3),
-            Text(
-              item.popularity,
-              style: const TextStyle(color: AppColors.sage, fontSize: 12),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RankingRow extends StatelessWidget {
-  const _RankingRow({
-    required this.index,
-    required this.item,
+class _HeroCarousel extends StatelessWidget {
+  const _HeroCarousel({
+    required this.items,
+    required this.controller,
+    required this.currentIndex,
+    required this.onPageChanged,
     required this.onTap,
   });
 
-  final int index;
-  final ContentItem item;
-  final VoidCallback onTap;
+  final List<ContentItem> items;
+  final PageController controller;
+  final int currentIndex;
+  final ValueChanged<int> onPageChanged;
+  final ValueChanged<ContentItem> onTap;
 
   @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 20),
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: AppColors.divider)),
+  Widget build(BuildContext context) => SizedBox(
+    height: 158,
+    child: Stack(
+      children: [
+        PageView.builder(
+          controller: controller,
+          itemCount: items.length,
+          onPageChanged: onPageChanged,
+          itemBuilder: (context, index) {
+            final item = items[index];
+            return Material(
+              color: const Color(0xFF1B2329),
+              borderRadius: BorderRadius.circular(AppRadii.medium),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () => onTap(item),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Image.asset(
+                      'assets/design/bookstore-hero.png',
+                      fit: BoxFit.cover,
+                      alignment: Alignment.centerRight,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 22, 150, 18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 21,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 7),
+                          Text(
+                            item.creator,
+                            style: const TextStyle(
+                              color: Color(0xFFD8DFE2),
+                              fontSize: 11,
+                            ),
+                          ),
+                          const Spacer(),
+                          const Text(
+                            '沉浸阅读 · 多源聚合',
+                            style: TextStyle(
+                              color: Color(0xFFB9C5C9),
+                              fontSize: 9,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
         ),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 32,
-              child: Text(
-                '${index + 1}',
-                style: TextStyle(
-                  color: index < 3
-                      ? const Color(0xFFF07C32)
-                      : AppColors.secondaryText,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 8,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(
+              items.length,
+              (index) => AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: index == currentIndex ? 13 : 4,
+                height: 4,
+                margin: const EdgeInsets.symmetric(horizontal: 2),
+                decoration: BoxDecoration(
+                  color: index == currentIndex
+                      ? AppColors.coral
+                      : Colors.white.withValues(alpha: .7),
+                  borderRadius: BorderRadius.circular(99),
                 ),
               ),
             ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _QuickCategories extends StatelessWidget {
+  const _QuickCategories({required this.onTap});
+
+  final ValueChanged<String> onTap;
+
+  static const _items = [
+    ('分类', Icons.grid_view_rounded),
+    ('排行榜', Icons.workspace_premium_rounded),
+    ('完结', Icons.bookmark_added_rounded),
+    ('新书', Icons.new_releases_rounded),
+    ('书单', Icons.favorite_rounded),
+  ];
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: _items.map((entry) {
+      return InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => onTap(
+          entry.$1 == '完结'
+              ? '全部'
+              : entry.$1 == '新书'
+              ? '玄幻'
+              : entry.$1 == '排行榜'
+              ? '仙侠'
+              : entry.$1 == '书单'
+              ? '都市'
+              : '全部',
+        ),
+        child: SizedBox(
+          width: 54,
+          child: Column(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: const BoxDecoration(
+                  color: AppColors.coral,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(entry.$2, color: Colors.white, size: 18),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                entry.$1,
+                style: const TextStyle(
+                  color: AppColors.secondaryText,
+                  fontSize: 10,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }).toList(),
+  );
+}
+
+class _PickGrid extends StatelessWidget {
+  const _PickGrid({required this.items, required this.onTap});
+
+  final List<ContentItem> items;
+  final ValueChanged<ContentItem> onTap;
+
+  @override
+  Widget build(BuildContext context) => GridView.builder(
+    shrinkWrap: true,
+    physics: const NeverScrollableScrollPhysics(),
+    itemCount: items.length,
+    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: 2,
+      crossAxisSpacing: 12,
+      mainAxisSpacing: 12,
+      childAspectRatio: 2.45,
+    ),
+    itemBuilder: (context, index) {
+      final item = items[index];
+      return InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => onTap(item),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             ContentCover(
               asset: item.coverAsset,
-              width: 58,
-              height: 72,
-              radius: 8,
+              width: 46,
+              height: 64,
+              radius: 5,
             ),
-            const SizedBox(width: 14),
+            const SizedBox(width: 8),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     item.title,
-                    style: Theme.of(context).textTheme.titleMedium,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.text,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   const SizedBox(height: 4),
-                  Text('${item.creator} · ${item.category}'),
+                  Text(
+                    item.creator,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.secondaryText,
+                      fontSize: 9,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    item.tags.firstOrNull ?? item.category,
+                    style: const TextStyle(
+                      color: AppColors.tertiaryText,
+                      fontSize: 9,
+                    ),
+                  ),
                 ],
               ),
             ),
-            Text(
-              item.popularity,
-              style: const TextStyle(color: AppColors.sage, fontSize: 12),
-            ),
           ],
         ),
-      ),
-    );
-  }
+      );
+    },
+  );
 }
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title, required this.action});
-
-  final String title;
-  final String action;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(title, style: Theme.of(context).textTheme.titleLarge),
-        ),
-        TextButton(onPressed: () {}, child: Text(action)),
-      ],
-    );
-  }
-}
-
-class _EmptySearch extends StatelessWidget {
-  const _EmptySearch({
-    required this.message,
-    required this.onRetry,
-    required this.hasSources,
-    required this.query,
-    required this.channel,
-  });
+class _LoadError extends StatelessWidget {
+  const _LoadError({required this.message, required this.onRetry});
 
   final String message;
   final VoidCallback onRetry;
-  final bool hasSources;
-  final String query;
-  final ContentChannel channel;
 
   @override
-  Widget build(BuildContext context) {
-    if (!hasSources) {
-      return EmptyState(
-        icon: Icons.explore_off_outlined,
-        title: '暂无订阅内容源',
-        description: '您尚未启用或导入任何可用的${channel.label}内容源，请前往配置。',
-        actionLabel: '前往配置内容源',
-        onAction: () {
-          Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const SourceManagementPage()),
-          ).then((_) => onRetry());
-        },
-      );
-    }
-    
-    if (query.isNotEmpty) {
-      return EmptyState(
-        icon: Icons.search_off_rounded,
-        title: '未找到匹配结果',
-        description: '未在当前启用的数据源中找到与“$query”相关的结果，请尝试其他词。',
-        actionLabel: '重新加载',
-        onAction: onRetry,
-      );
-    }
-
-    return EmptyState(
-      icon: Icons.cloud_off_rounded,
-      title: '加载未成功',
-      description: message,
-      actionLabel: '重新加载',
-      onAction: onRetry,
-    );
-  }
+  Widget build(BuildContext context) => SizedBox(
+    height: 170,
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Icon(Icons.cloud_off_rounded, color: AppColors.tertiaryText),
+        const SizedBox(height: 8),
+        Text(
+          message,
+          style: const TextStyle(color: AppColors.secondaryText, fontSize: 11),
+        ),
+        TextButton(onPressed: onRetry, child: const Text('重新加载')),
+      ],
+    ),
+  );
 }

@@ -43,25 +43,28 @@ class EmptyState extends StatelessWidget {
               title,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.text.withValues(alpha: .85),
-                  ),
+                fontWeight: FontWeight.w700,
+                color: AppColors.text.withValues(alpha: .85),
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               description,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AppColors.secondaryText,
-                    height: 1.4,
-                  ),
+                color: AppColors.secondaryText,
+                height: 1.4,
+              ),
             ),
             if (actionLabel != null && onAction != null) ...[
               const SizedBox(height: 28),
               FilledButton.icon(
                 onPressed: onAction,
                 style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 28,
+                    vertical: 14,
+                  ),
                   backgroundColor: AppColors.sage,
                   foregroundColor: Colors.white,
                   elevation: 0,

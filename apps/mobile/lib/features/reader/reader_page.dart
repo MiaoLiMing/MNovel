@@ -1,327 +1,702 @@
 import 'dart:async';
-import 'dart:math' as math;
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../data/content_repository.dart';
 import '../../data/reading_progress_store.dart';
 import '../../domain/content.dart';
+import 'chapter_catalog_page.dart';
 import 'reader_settings.dart';
 
 class ReaderPage extends StatefulWidget {
-  const ReaderPage({super.key, required this.item, this.initialChapters});
+  const ReaderPage({
+    super.key,
+    required this.item,
+    this.initialChapterIndex = 0,
+    this.initialChapters,
+    this.repository,
+  });
 
   final ContentItem item;
+  final int initialChapterIndex;
   final List<Chapter>? initialChapters;
+  final ContentRepository? repository;
 
   @override
   State<ReaderPage> createState() => _ReaderPageState();
 }
 
 class _ReaderPageState extends State<ReaderPage> {
-  static const _motion = Duration(milliseconds: 260);
-
-  final _contentRepository = ContentRepository();
+  late final ContentRepository _repository;
+  late final PageController _pageController;
   final _settingsStore = ReaderSettingsStore();
   final _progressStore = ReadingProgressStore();
-  PageController _pageController = PageController(initialPage: 1);
-  Timer? _autoPageTimer;
+  final Map<int, Future<Chapter>> _chapterFutures = {};
+
+  late int _chapterIndex = widget.initialChapterIndex.clamp(
+    0,
+    widget.item.episodeCount - 1,
+  );
   ReaderSettings _settings = const ReaderSettings();
-  bool _controlsVisible = false;
-  bool _switchingChapter = false;
-  bool _chapterLoading = false;
-  String? _chapterError;
-  int _chapterIndex = 0;
-  List<Chapter> _chapters = const [];
+  bool _controlsVisible = true;
+  bool _settingsLoaded = false;
+  late String _selectedSource =
+      widget.item.sourceLabels.firstOrNull ?? widget.item.sourceName;
+  Timer? _autoPageTimer;
 
   @override
   void initState() {
     super.initState();
+    _repository = widget.repository ?? ContentRepository();
+    _pageController = PageController(initialPage: _chapterIndex);
     unawaited(_restoreSettings());
-    unawaited(_initializeChapters());
-  }
-
-  Future<void> _initializeChapters() async {
-    final savedProgress = await _progressStore.load(widget.item.id);
-    if (widget.initialChapters case final chapters?) {
-      if (!mounted) return;
-      setState(() {
-        _chapters = chapters;
-        _chapterIndex = savedProgress.chapterIndex.clamp(
-          0,
-          chapters.length - 1,
-        );
-      });
-      return;
-    }
-    if (!widget.item.isLive) {
-      setState(() => _chapterError = '该内容没有可用的真实数据源');
-      return;
-    }
-    final count = math.max(1, widget.item.episodeCount);
-    setState(() {
-      _chapters = List.generate(
-        count,
-        (index) => Chapter(title: '第 ${index + 1} 节', paragraphs: const []),
-      );
-      _chapterIndex = savedProgress.chapterIndex.clamp(0, count - 1);
-    });
-    await _loadChapter(_chapterIndex);
-  }
-
-  Future<void> _loadChapter(int index) async {
-    if (!widget.item.isLive || index < 0 || index >= _chapters.length) return;
-    setState(() {
-      _chapterLoading = true;
-      _chapterError = null;
-    });
-    try {
-      final chapter = await _contentRepository.chapter(widget.item, index);
-      if (!mounted) return;
-      setState(() {
-        _chapters[index] = chapter;
-        _chapterLoading = false;
-        _resetPageController();
-      });
-    } on ContentRepositoryException catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _chapterLoading = false;
-        _chapterError = error.message;
-      });
-    }
-  }
-
-  Future<void> _restoreSettings() async {
-    final value = await _settingsStore.load();
-    if (!mounted) return;
-    setState(() => _settings = value);
-    _syncDeviceAndAutoPage();
   }
 
   @override
   void dispose() {
     _autoPageTimer?.cancel();
-    unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
-    _pageController.dispose();
     unawaited(_saveProgress());
+    _pageController.dispose();
     super.dispose();
   }
 
-  void _setSettings(ReaderSettings value) {
-    final previous = _settings;
-    final requiresRepagination =
-        previous.fontSize != value.fontSize ||
-        previous.lineHeight != value.lineHeight ||
-        previous.letterSpacing != value.letterSpacing ||
-        previous.paragraphSpacing != value.paragraphSpacing ||
-        previous.horizontalPadding != value.horizontalPadding ||
-        previous.firstLineIndent != value.firstLineIndent ||
-        previous.pageMode != value.pageMode;
+  Future<void> _restoreSettings() async {
+    final settings = await _settingsStore.load();
+    final progress = await _progressStore.load(widget.item.id);
+    if (!mounted) return;
+    final restoredIndex = widget.initialChapterIndex > 0
+        ? widget.initialChapterIndex
+        : progress.chapterIndex.clamp(0, widget.item.episodeCount - 1);
     setState(() {
-      _settings = value;
-      if (requiresRepagination) _resetPageController();
+      _settings = settings;
+      _settingsLoaded = true;
+      _chapterIndex = restoredIndex;
     });
-    unawaited(_settingsStore.save(value));
-    _syncDeviceAndAutoPage();
+    if (_pageController.hasClients &&
+        _pageController.page?.round() != restoredIndex) {
+      _pageController.jumpToPage(restoredIndex);
+    }
+    _syncAutoPage();
   }
 
-  void _resetPageController() {
-    final previous = _pageController;
-    _pageController = PageController(initialPage: 1);
-    WidgetsBinding.instance.addPostFrameCallback((_) => previous.dispose());
-  }
-
-  void _syncDeviceAndAutoPage() {
-    unawaited(
-      SystemChrome.setPreferredOrientations(
-        _settings.landscape
-            ? const [
-                DeviceOrientation.landscapeLeft,
-                DeviceOrientation.landscapeRight,
-              ]
-            : const [
-                DeviceOrientation.portraitUp,
-                DeviceOrientation.portraitDown,
-              ],
+  Future<Chapter> _loadChapter(int index) {
+    if (widget.initialChapters != null &&
+        index < widget.initialChapters!.length) {
+      return Future.value(widget.initialChapters![index]);
+    }
+    return _repository.chapter(
+      widget.item.copyWith(
+        sourceId: _selectedSource,
+        sourceName: _selectedSource,
       ),
+      index,
     );
-    _autoPageTimer?.cancel();
-    if (!_settings.autoPage || _settings.pageMode == ReaderPageMode.vertical) {
-      return;
-    }
-    _autoPageTimer = Timer.periodic(const Duration(seconds: 6), (_) {
-      if (!mounted || _controlsVisible || !_pageController.hasClients) return;
-      final position = _pageController.position;
-      if (position.pixels >= position.maxScrollExtent - 1) {
-        _goToChapter(_chapterIndex + 1);
-      } else {
-        unawaited(
-          _pageController.nextPage(
-            duration: const Duration(milliseconds: 520),
-            curve: Curves.easeInOutCubic,
-          ),
-        );
-      }
-    });
   }
 
-  bool _goToChapter(int index) {
-    final chapters = _chapters;
-    if (index < 0 || index >= chapters.length || _switchingChapter) {
-      return false;
-    }
-    _switchingChapter = true;
-    setState(() {
-      _chapterIndex = index;
-      _resetPageController();
-    });
-    if (widget.item.isLive && chapters[index].paragraphs.isEmpty) {
-      unawaited(_loadChapter(index));
-    }
-    unawaited(_saveProgress());
-    Future<void>.delayed(const Duration(milliseconds: 320), () {
-      _switchingChapter = false;
-    });
-    return true;
-  }
+  Future<Chapter> _chapterFuture(int index) =>
+      _chapterFutures.putIfAbsent(index, () => _loadChapter(index));
 
   Future<void> _saveProgress() => _progressStore.save(
     widget.item.id,
     chapterIndex: _chapterIndex,
-    ratio: _chapters.length <= 1 ? 0 : _chapterIndex / (_chapters.length - 1),
+    ratio: (_chapterIndex + 1) / widget.item.episodeCount,
   );
+
+  void _changeChapter(int index) {
+    final target = index.clamp(0, widget.item.episodeCount - 1);
+    _pageController.animateToPage(
+      target,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _onPageChanged(int index) {
+    setState(() => _chapterIndex = index);
+    unawaited(_saveProgress());
+  }
+
+  void _toggleControls() {
+    setState(() => _controlsVisible = !_controlsVisible);
+  }
+
+  Future<void> _openCatalog() async {
+    final selected = await Navigator.of(context).push<int>(
+      MaterialPageRoute<int>(
+        builder: (_) => ChapterCatalogPage(
+          item: widget.item,
+          selectedSource: _selectedSource,
+          repository: _repository,
+        ),
+      ),
+    );
+    if (selected != null && mounted) _changeChapter(selected);
+  }
+
+  Future<void> _showSources() async {
+    final sources = widget.item.sourceLabels.isEmpty
+        ? [widget.item.sourceName]
+        : widget.item.sourceLabels;
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: AppColors.surface,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '切换书源',
+                style: TextStyle(
+                  color: AppColors.text,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              RadioGroup<String>(
+                groupValue: _selectedSource,
+                onChanged: (value) {
+                  if (value != null) Navigator.pop(sheetContext, value);
+                },
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: sources
+                      .map(
+                        (source) => RadioListTile<String>(
+                          value: source,
+                          activeColor: AppColors.coral,
+                          title: Text(source),
+                          subtitle: const Text('章节可用 · 自动记住选择'),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected == null || selected == _selectedSource) return;
+    setState(() {
+      _selectedSource = selected;
+      _chapterFutures.clear();
+    });
+  }
+
+  Future<void> _showSettings() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: AppColors.surface,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          void update(ReaderSettings value) {
+            setState(() => _settings = value);
+            setSheetState(() {});
+            unawaited(_settingsStore.save(value));
+            _syncAutoPage();
+          }
+
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Center(
+                    child: Text(
+                      '阅读设置',
+                      style: TextStyle(
+                        color: AppColors.text,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  _SettingRow(
+                    label: '字体大小',
+                    child: Row(
+                      children: [
+                        _SquareButton(
+                          label: 'A−',
+                          onTap: () => update(
+                            _settings.copyWith(
+                              fontSize: (_settings.fontSize - 1).clamp(14, 28),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            '${_settings.fontSize.round()}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: AppColors.text,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        _SquareButton(
+                          label: 'A+',
+                          onTap: () => update(
+                            _settings.copyWith(
+                              fontSize: (_settings.fontSize + 1).clamp(14, 28),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _SettingRow(
+                    label: '行间距',
+                    child: Row(
+                      children: [1.55, 1.8, 2.05].map((height) {
+                        final selected =
+                            (_settings.lineHeight - height).abs() < .1;
+                        return Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: _SelectionBox(
+                              selected: selected,
+                              onTap: () => update(
+                                _settings.copyWith(lineHeight: height),
+                              ),
+                              child: Icon(
+                                Icons.format_line_spacing_rounded,
+                                color: selected
+                                    ? AppColors.coral
+                                    : AppColors.secondaryText,
+                                size: 18 + ((height - 1.55) * 4),
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    '主题模式',
+                    style: TextStyle(
+                      color: AppColors.text,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: ReaderPalette.values.map((palette) {
+                      final selected = _settings.palette == palette;
+                      return InkWell(
+                        borderRadius: BorderRadius.circular(99),
+                        onTap: () =>
+                            update(_settings.copyWith(palette: palette)),
+                        child: Column(
+                          children: [
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 150),
+                              width: 34,
+                              height: 34,
+                              decoration: BoxDecoration(
+                                color: palette.background,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: selected
+                                      ? AppColors.coral
+                                      : AppColors.divider,
+                                  width: selected ? 2 : 1,
+                                ),
+                              ),
+                              child: selected
+                                  ? Icon(
+                                      Icons.check_rounded,
+                                      size: 16,
+                                      color: palette.foreground,
+                                    )
+                                  : null,
+                            ),
+                            const SizedBox(height: 5),
+                            Text(
+                              palette.label,
+                              style: const TextStyle(
+                                color: AppColors.secondaryText,
+                                fontSize: 9,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    '翻页动画',
+                    style: TextStyle(
+                      color: AppColors.text,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 9),
+                  Row(
+                    children: ReaderPageMode.values.map((mode) {
+                      return Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: _SelectionBox(
+                            selected: _settings.pageMode == mode,
+                            onTap: () =>
+                                update(_settings.copyWith(pageMode: mode)),
+                            child: Text(
+                              mode.label,
+                              style: TextStyle(
+                                color: _settings.pageMode == mode
+                                    ? AppColors.coral
+                                    : AppColors.secondaryText,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    '简繁转换',
+                    style: TextStyle(
+                      color: AppColors.text,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 9),
+                  Row(
+                    children: ReaderScript.values.map((script) {
+                      final label = script == ReaderScript.simplified
+                          ? '简体'
+                          : '繁体';
+                      return Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: _SelectionBox(
+                            selected: _settings.script == script,
+                            onTap: () =>
+                                update(_settings.copyWith(script: script)),
+                            child: Text(
+                              label,
+                              style: TextStyle(
+                                color: _settings.script == script
+                                    ? AppColors.coral
+                                    : AppColors.secondaryText,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 12),
+                  Center(
+                    child: TextButton(
+                      onPressed: () {
+                        Navigator.pop(sheetContext);
+                        _showAdvancedSettings();
+                      },
+                      child: const Text(
+                        '更多设置 >',
+                        style: TextStyle(
+                          color: AppColors.secondaryText,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _showAdvancedSettings() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: AppColors.surface,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          Future<void> update(ReaderSettings value) async {
+            setState(() => _settings = value);
+            setSheetState(() {});
+            await _settingsStore.save(value);
+            _syncAutoPage();
+          }
+
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SwitchListTile(
+                    title: const Text('首行缩进'),
+                    value: _settings.firstLineIndent,
+                    onChanged: (value) =>
+                        update(_settings.copyWith(firstLineIndent: value)),
+                  ),
+                  SwitchListTile(
+                    title: const Text('自动翻页'),
+                    value: _settings.autoPage,
+                    onChanged: (value) =>
+                        update(_settings.copyWith(autoPage: value)),
+                  ),
+                  SwitchListTile(
+                    title: const Text('横屏阅读'),
+                    subtitle: const Text('保存偏好，下次进入阅读器继续使用'),
+                    value: _settings.landscape,
+                    onChanged: (value) =>
+                        update(_settings.copyWith(landscape: value)),
+                  ),
+                  ListTile(
+                    title: const Text('左右页边距'),
+                    subtitle: Slider(
+                      min: 14,
+                      max: 36,
+                      divisions: 11,
+                      value: _settings.horizontalPadding,
+                      onChanged: (value) =>
+                          update(_settings.copyWith(horizontalPadding: value)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _syncAutoPage() {
+    _autoPageTimer?.cancel();
+    if (!_settings.autoPage) return;
+    _autoPageTimer = Timer.periodic(const Duration(seconds: 18), (_) {
+      if (!mounted || _chapterIndex >= widget.item.episodeCount - 1) return;
+      _changeChapter(_chapterIndex + 1);
+    });
+  }
+
+  Future<void> _showMore() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: AppColors.surface,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.copy_rounded),
+                title: const Text('复制当前章节'),
+                onTap: () async {
+                  final chapter = await _chapterFuture(_chapterIndex);
+                  await Clipboard.setData(
+                    ClipboardData(
+                      text:
+                          '${chapter.title}\n\n${chapter.paragraphs.join('\n\n')}',
+                    ),
+                  );
+                  if (!sheetContext.mounted) return;
+                  Navigator.pop(sheetContext);
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('当前章节已复制')));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.download_outlined),
+                title: const Text('缓存当前章节'),
+                onTap: () async {
+                  await _downloadCurrent();
+                  if (sheetContext.mounted) Navigator.pop(sheetContext);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.hub_outlined),
+                title: const Text('切换书源'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showSources();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _downloadCurrent() async {
+    final chapter = await _chapterFuture(_chapterIndex);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'offline.chapter.${widget.item.id}.$_chapterIndex',
+      jsonEncode({
+        'title': chapter.title,
+        'paragraphs': chapter.paragraphs,
+        'source': _selectedSource,
+      }),
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('当前章节已缓存')));
+  }
 
   @override
   Widget build(BuildContext context) {
-    final chapters = _chapters;
-    if (chapters.isEmpty) {
-      return Scaffold(
-        backgroundColor: _settings.palette.background,
-        body: Center(
-          child: _chapterError == null
-              ? const CircularProgressIndicator()
-              : Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text(
-                    _chapterError!,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: _settings.palette.foreground),
-                  ),
-                ),
-        ),
-      );
+    if (!_settingsLoaded) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    final chapter = chapters[_chapterIndex];
     final background = _settings.palette.background;
     final foreground = _settings.palette.foreground;
+    final progress = (_chapterIndex + 1) / widget.item.episodeCount;
 
     return Scaffold(
       backgroundColor: background,
-      body: SafeArea(
+      body: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: _settings.palette == ReaderPalette.night
+            ? SystemUiOverlayStyle.light
+            : SystemUiOverlayStyle.dark,
         child: Stack(
           children: [
-            if (_chapterLoading)
-              const Center(child: CircularProgressIndicator())
-            else if (_chapterError != null)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(28),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(_chapterError!, textAlign: TextAlign.center),
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        onPressed: () => _loadChapter(_chapterIndex),
-                        icon: const Icon(Icons.refresh_rounded),
-                        label: const Text('重新获取正文'),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            else
-              LayoutBuilder(
-                builder: (context, constraints) => GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTapUp: (details) {
-                    final width = constraints.maxWidth;
-                    if (details.localPosition.dx > width * .32 &&
-                        details.localPosition.dx < width * .68) {
-                      setState(() => _controlsVisible = !_controlsVisible);
-                    }
-                  },
-                  child: _ReaderBody(
-                    chapter: chapter,
-                    settings: _settings,
-                    foreground: foreground,
-                    pageController: _pageController,
-                    onPageChanged: (_) {},
-                    onChapterBoundary: (direction) {
-                      return _goToChapter(_chapterIndex + direction);
+            SafeArea(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTapUp: (details) {
+                  final width = MediaQuery.sizeOf(context).width;
+                  if (details.localPosition.dx < width * .28) {
+                    _changeChapter(_chapterIndex - 1);
+                  } else if (details.localPosition.dx > width * .72) {
+                    _changeChapter(_chapterIndex + 1);
+                  } else {
+                    _toggleControls();
+                  }
+                },
+                child: PageView.builder(
+                  controller: _pageController,
+                  scrollDirection: Axis.horizontal,
+                  physics: _settings.pageMode == ReaderPageMode.none
+                      ? const NeverScrollableScrollPhysics()
+                      : const PageScrollPhysics(),
+                  itemCount: widget.item.episodeCount,
+                  onPageChanged: _onPageChanged,
+                  itemBuilder: (context, index) => FutureBuilder<Chapter>(
+                    future: _chapterFuture(index),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState != ConnectionState.done) {
+                        return Center(
+                          child: CircularProgressIndicator(
+                            color: foreground.withValues(alpha: .65),
+                            strokeWidth: 2,
+                          ),
+                        );
+                      }
+                      if (snapshot.hasError || snapshot.data == null) {
+                        return _ReaderError(
+                          color: foreground,
+                          onRetry: () => setState(() {
+                            _chapterFutures.remove(index);
+                          }),
+                        );
+                      }
+                      return _ChapterView(
+                        chapter: snapshot.data!,
+                        item: widget.item,
+                        settings: _settings,
+                      );
                     },
                   ),
                 ),
               ),
-            IgnorePointer(
-              child: ColoredBox(
-                color: Colors.black.withValues(
-                  alpha: (1 - _settings.brightness) * .42,
-                ),
-                child: const SizedBox.expand(),
-              ),
             ),
-            AnimatedSlide(
-              duration: _motion,
-              curve: Curves.easeOutCubic,
-              offset: _controlsVisible ? Offset.zero : const Offset(0, -1.1),
-              child: AnimatedOpacity(
-                duration: _motion,
-                opacity: _controlsVisible ? 1 : 0,
-                child: _ReaderTopBar(
-                  title: widget.item.title,
-                  night: _settings.palette == ReaderPalette.night,
-                  onBack: () => Navigator.of(context).pop(),
-                ),
-              ),
-            ),
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: AnimatedSlide(
-                duration: _motion,
-                curve: Curves.easeOutCubic,
-                offset: _controlsVisible ? Offset.zero : const Offset(0, 1.05),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: IgnorePointer(
+                ignoring: !_controlsVisible,
                 child: AnimatedOpacity(
-                  duration: _motion,
                   opacity: _controlsVisible ? 1 : 0,
-                  child: IgnorePointer(
-                    ignoring: !_controlsVisible,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _ChapterNavigationBar(
-                          current: _chapterIndex + 1,
-                          total: chapters.length,
-                          night: _settings.palette == ReaderPalette.night,
-                          onPrevious: _chapterIndex == 0
-                              ? null
-                              : () => _goToChapter(_chapterIndex - 1),
-                          onNext: _chapterIndex == chapters.length - 1
-                              ? null
-                              : () => _goToChapter(_chapterIndex + 1),
-                        ),
-                        _ReaderBottomBar(
-                          night: _settings.palette == ReaderPalette.night,
-                          onCatalog: () => _showCatalog(chapters),
-                          onNight: _toggleNight,
-                          onSettings: _showSettings,
-                          onSources: _showSources,
-                        ),
-                      ],
+                  duration: const Duration(milliseconds: 180),
+                  child: _ReaderTopBar(
+                    title: widget.item.title,
+                    chapter: '第 ${_chapterIndex + 1} 章',
+                    onBack: () => Navigator.pop(context),
+                    onSource: _showSources,
+                    onMore: _showMore,
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: IgnorePointer(
+                ignoring: !_controlsVisible,
+                child: AnimatedOpacity(
+                  opacity: _controlsVisible ? 1 : 0,
+                  duration: const Duration(milliseconds: 180),
+                  child: _ReaderBottomBar(
+                    progress: progress,
+                    chapterIndex: _chapterIndex,
+                    total: widget.item.episodeCount,
+                    night: _settings.palette == ReaderPalette.night,
+                    onProgressChanged: (value) => _changeChapter(
+                      (value * (widget.item.episodeCount - 1)).round(),
                     ),
+                    onPrevious: _chapterIndex == 0
+                        ? null
+                        : () => _changeChapter(_chapterIndex - 1),
+                    onNext: _chapterIndex >= widget.item.episodeCount - 1
+                        ? null
+                        : () => _changeChapter(_chapterIndex + 1),
+                    onCatalog: _openCatalog,
+                    onNight: () {
+                      final palette = _settings.palette == ReaderPalette.night
+                          ? ReaderPalette.white
+                          : ReaderPalette.night;
+                      setState(
+                        () => _settings = _settings.copyWith(palette: palette),
+                      );
+                      unawaited(_settingsStore.save(_settings));
+                    },
+                    onSettings: _showSettings,
+                    onSources: _showSources,
                   ),
                 ),
               ),
@@ -331,783 +706,126 @@ class _ReaderPageState extends State<ReaderPage> {
       ),
     );
   }
-
-  void _toggleNight() {
-    final isNight = _settings.palette == ReaderPalette.night;
-    _setSettings(
-      _settings.copyWith(
-        palette: isNight ? ReaderPalette.parchment : ReaderPalette.night,
-      ),
-    );
-  }
-
-  void _showCatalog(List<Chapter> chapters) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      enableDrag: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: .72,
-        minChildSize: .28,
-        maxChildSize: .94,
-        snap: true,
-        snapSizes: const [.45, .72, .94],
-        shouldCloseOnMinExtent: true,
-        expand: false,
-        builder: (context, scrollController) => Material(
-          color: Theme.of(context).colorScheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            children: [
-              const _SheetHandle(),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 12, 12),
-                child: Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        '目录',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    Text('${chapters.length} 章'),
-                    IconButton(
-                      tooltip: '关闭目录',
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.keyboard_arrow_down_rounded),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: ListView.builder(
-                  controller: scrollController,
-                  itemCount: chapters.length,
-                  itemBuilder: (context, index) => ListTile(
-                    selected: index == _chapterIndex,
-                    selectedTileColor: AppColors.sage.withValues(alpha: .09),
-                    selectedColor: AppColors.sage,
-                    title: Text(chapters[index].title),
-                    trailing: index == _chapterIndex
-                        ? const Icon(
-                            Icons.menu_book_rounded,
-                            color: AppColors.sage,
-                          )
-                        : null,
-                    onTap: () {
-                      _goToChapter(index);
-                      Navigator.pop(context);
-                    },
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showSettings() {
-    var draft = _settings;
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      enableDrag: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: .76,
-        minChildSize: .38,
-        maxChildSize: .94,
-        expand: false,
-        snap: true,
-        builder: (context, scrollController) => StatefulBuilder(
-          builder: (context, setSheetState) {
-            void update(ReaderSettings value) {
-              draft = value;
-              setSheetState(() {});
-              _setSettings(value);
-            }
-
-            return Material(
-              color: draft.palette.background,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(28),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: Column(
-                children: [
-                  Expanded(
-                    child: ListView(
-                      controller: scrollController,
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
-                      children: [
-                        const _SheetHandle(),
-                        Row(
-                          children: [
-                            Text(
-                              '阅读设置',
-                              style: TextStyle(
-                                color: draft.palette.foreground,
-                                fontSize: 20,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const Spacer(),
-                            IconButton(
-                              tooltip: '关闭设置',
-                              onPressed: () => Navigator.pop(context),
-                              icon: const Icon(
-                                Icons.keyboard_arrow_down_rounded,
-                              ),
-                            ),
-                          ],
-                        ),
-                        _SettingLine(
-                          label: '亮度',
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Slider(
-                                  value: draft.brightness,
-                                  onChanged: (value) =>
-                                      update(draft.copyWith(brightness: value)),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              const Text('护眼'),
-                              Switch(
-                                value: draft.eyeCare,
-                                onChanged: (value) => update(
-                                  draft.copyWith(
-                                    eyeCare: value,
-                                    palette: value
-                                        ? ReaderPalette.eyeCare
-                                        : draft.palette,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        _SettingLine(
-                          label: '字号',
-                          child: Row(
-                            children: [
-                              _PillButton(
-                                label: 'A−',
-                                onTap: () => update(
-                                  draft.copyWith(
-                                    fontSize: (draft.fontSize - 1).clamp(
-                                      15,
-                                      30,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              SizedBox(
-                                width: 46,
-                                child: Text(
-                                  '${draft.fontSize.round()}',
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                              _PillButton(
-                                label: 'A+',
-                                onTap: () => update(
-                                  draft.copyWith(
-                                    fontSize: (draft.fontSize + 1).clamp(
-                                      15,
-                                      30,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        _SettingLine(
-                          label: '背景',
-                          child: Wrap(
-                            spacing: 14,
-                            runSpacing: 10,
-                            children: ReaderPalette.values.map((palette) {
-                              final selected = draft.palette == palette;
-                              return Tooltip(
-                                message: palette.label,
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(28),
-                                  onTap: () => update(
-                                    draft.copyWith(
-                                      palette: palette,
-                                      eyeCare: palette == ReaderPalette.eyeCare,
-                                    ),
-                                  ),
-                                  child: AnimatedContainer(
-                                    duration: const Duration(milliseconds: 180),
-                                    width: 44,
-                                    height: 44,
-                                    decoration: BoxDecoration(
-                                      color: palette.background,
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: selected
-                                            ? AppColors.text
-                                            : Colors.black.withValues(
-                                                alpha: .10,
-                                              ),
-                                        width: selected ? 2.5 : 1,
-                                      ),
-                                    ),
-                                    child: selected
-                                        ? Icon(
-                                            Icons.check_rounded,
-                                            color: palette.foreground,
-                                          )
-                                        : null,
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                        ),
-                        _SettingLine(
-                          label: '翻页',
-                          child: SegmentedButton<ReaderPageMode>(
-                            segments: ReaderPageMode.values
-                                .map(
-                                  (mode) => ButtonSegment(
-                                    value: mode,
-                                    label: Text(mode.label),
-                                  ),
-                                )
-                                .toList(),
-                            selected: {draft.pageMode},
-                            showSelectedIcon: false,
-                            onSelectionChanged: (value) =>
-                                update(draft.copyWith(pageMode: value.first)),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 10,
-                          children: [
-                            FilterChip(
-                              label: const Text('自动翻页'),
-                              avatar: const Icon(
-                                Icons.play_arrow_rounded,
-                                size: 18,
-                              ),
-                              selected: draft.autoPage,
-                              onSelected: (value) =>
-                                  update(draft.copyWith(autoPage: value)),
-                            ),
-                            FilterChip(
-                              label: const Text('横屏'),
-                              avatar: const Icon(
-                                Icons.screen_rotation_rounded,
-                                size: 18,
-                              ),
-                              selected: draft.landscape,
-                              onSelected: (value) =>
-                                  update(draft.copyWith(landscape: value)),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        ExpansionTile(
-                          tilePadding: EdgeInsets.zero,
-                          title: const Text('字体与行距'),
-                          subtitle: const Text('行高、字距、段距、页边距与首行缩进'),
-                          children: [
-                            _AdvancedSlider(
-                              label: '行高',
-                              value: draft.lineHeight,
-                              min: 1.4,
-                              max: 2.4,
-                              onChanged: (value) =>
-                                  update(draft.copyWith(lineHeight: value)),
-                            ),
-                            _AdvancedSlider(
-                              label: '字距',
-                              value: draft.letterSpacing,
-                              min: 0,
-                              max: 1.5,
-                              onChanged: (value) =>
-                                  update(draft.copyWith(letterSpacing: value)),
-                            ),
-                            _AdvancedSlider(
-                              label: '段距',
-                              value: draft.paragraphSpacing,
-                              min: 8,
-                              max: 32,
-                              onChanged: (value) => update(
-                                draft.copyWith(paragraphSpacing: value),
-                              ),
-                            ),
-                            _AdvancedSlider(
-                              label: '页边距',
-                              value: draft.horizontalPadding,
-                              min: 14,
-                              max: 38,
-                              onChanged: (value) => update(
-                                draft.copyWith(horizontalPadding: value),
-                              ),
-                            ),
-                            SwitchListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text('首行缩进'),
-                              value: draft.firstLineIndent,
-                              onChanged: (value) => update(
-                                draft.copyWith(firstLineIndent: value),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  _ReaderBottomBar(
-                    night: draft.palette == ReaderPalette.night,
-                    onCatalog: () {
-                      Navigator.pop(context);
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted) _showCatalog(_chapters);
-                      });
-                    },
-                    onNight: () {
-                      final nextPalette = draft.palette == ReaderPalette.night
-                          ? ReaderPalette.parchment
-                          : ReaderPalette.night;
-                      update(
-                        draft.copyWith(
-                          palette: nextPalette,
-                          eyeCare: nextPalette == ReaderPalette.eyeCare,
-                        ),
-                      );
-                    },
-                    onSettings: () {},
-                    onSources: () {
-                      Navigator.pop(context);
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted) _showSources();
-                      });
-                    },
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  void _showSources() {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => const SafeArea(
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(12, 0, 12, 22),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                title: Text('本地 OPDS / JSON'),
-                subtitle: Text('12 章 · 41ms · 当前来源'),
-                trailing: Icon(Icons.check_rounded, color: AppColors.sage),
-              ),
-              ListTile(
-                title: Text('Project Gutenberg OPDS'),
-                subtitle: Text('公共领域内容 · 只读目录'),
-              ),
-              ListTile(
-                title: Text('Open Library'),
-                subtitle: Text('书目与版本信息 · 不提供盗版正文'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
-class _ReaderBody extends StatelessWidget {
-  const _ReaderBody({
+class _ChapterView extends StatelessWidget {
+  const _ChapterView({
     required this.chapter,
+    required this.item,
     required this.settings,
-    required this.foreground,
-    required this.pageController,
-    required this.onPageChanged,
-    required this.onChapterBoundary,
   });
 
   final Chapter chapter;
+  final ContentItem item;
   final ReaderSettings settings;
-  final Color foreground;
-  final PageController pageController;
-  final ValueChanged<int> onPageChanged;
-  final bool Function(int) onChapterBoundary;
 
   @override
   Widget build(BuildContext context) {
-    if (settings.pageMode == ReaderPageMode.vertical) {
-      return SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(
-          settings.horizontalPadding,
-          34,
-          settings.horizontalPadding,
-          90,
-        ),
-        child: _ChapterText(
-          chapter: chapter,
-          settings: settings,
-          foreground: foreground,
-        ),
-      );
-    }
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final pages = _paginateChapter(
-          chapter,
-          Size(constraints.maxWidth, constraints.maxHeight),
-          settings,
-        );
-        return PageView.builder(
-          key: ValueKey('${chapter.title}-${settings.hashCode}'),
-          controller: pageController,
-          itemCount: pages.length + 2,
-          onPageChanged: (index) {
-            if (index == 0) {
-              if (!onChapterBoundary(-1)) {
-                pageController.animateToPage(
-                  1,
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                );
-              }
-              return;
-            }
-            if (index == pages.length + 1) {
-              if (!onChapterBoundary(1)) {
-                pageController.animateToPage(
-                  pages.length,
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                );
-              }
-              return;
-            }
-            onPageChanged(index - 1);
-          },
-          itemBuilder: (context, index) {
-            if (index == 0 || index == pages.length + 1) {
-              return ColoredBox(color: settings.palette.background);
-            }
-            final contentIndex = index - 1;
-            final page = _ReaderPageText(
-              chapterTitle: chapter.title,
-              text: pages[contentIndex],
-              page: contentIndex + 1,
-              pageCount: pages.length,
-              settings: settings,
-              foreground: foreground,
-            );
-            if (settings.pageMode != ReaderPageMode.simulation) return page;
-            return AnimatedBuilder(
-              animation: pageController,
-              child: page,
-              builder: (context, child) {
-                final current =
-                    pageController.hasClients &&
-                        pageController.position.haveDimensions
-                    ? pageController.page ?? 1
-                    : 1.0;
-                final delta = (index - current).clamp(-1.0, 1.0);
-                return Transform(
-                  alignment: delta >= 0
-                      ? Alignment.centerLeft
-                      : Alignment.centerRight,
-                  transform: Matrix4.identity()
-                    ..setEntry(3, 2, .0014)
-                    ..rotateY(delta * math.pi * .08),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(
-                            alpha: delta.abs() * .16,
-                          ),
-                          blurRadius: 18,
-                          offset: Offset(-delta * 8, 0),
-                        ),
-                      ],
-                    ),
-                    child: child,
-                  ),
-                );
-              },
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-List<String> _paginateChapter(
-  Chapter chapter,
-  Size size,
-  ReaderSettings settings,
-) {
-  final indent = settings.firstLineIndent ? '　　' : '';
-  var remaining = chapter.paragraphs.map((p) => '$indent$p').join('\n\n');
-  final pages = <String>[];
-  final style = TextStyle(
-    fontSize: settings.fontSize,
-    height: settings.lineHeight,
-    letterSpacing: settings.letterSpacing,
-  );
-  final width = math.max(120.0, size.width - settings.horizontalPadding * 2);
-  final height = math.max(160.0, size.height - 146);
-
-  while (remaining.isNotEmpty) {
-    final painter = TextPainter(
-      text: TextSpan(text: remaining, style: style),
-      textDirection: TextDirection.ltr,
-    )..layout(maxWidth: width);
-    if (painter.height <= height) {
-      pages.add(remaining);
-      break;
-    }
-    var end = painter
-        .getPositionForOffset(Offset(width - 2, height - 2))
-        .offset;
-    end = end.clamp(1, remaining.length);
-    final searchFrom = math.max(1, end - 48);
-    final punctuation = RegExp(r'[。！？\n]');
-    var preferred = -1;
-    for (var i = end - 1; i >= searchFrom; i--) {
-      if (punctuation.hasMatch(remaining[i])) {
-        preferred = i + 1;
-        break;
-      }
-    }
-    if (preferred > 0) end = preferred;
-    pages.add(remaining.substring(0, end).trim());
-    remaining = remaining.substring(end).trimLeft();
-  }
-  return pages.isEmpty ? const ['本章暂无正文'] : pages;
-}
-
-class _ChapterText extends StatelessWidget {
-  const _ChapterText({
-    required this.chapter,
-    required this.settings,
-    required this.foreground,
-  });
-
-  final Chapter chapter;
-  final ReaderSettings settings;
-  final Color foreground;
-
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        chapter.title,
-        style: TextStyle(
-          color: foreground,
-          fontSize: settings.fontSize + 3,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-      const SizedBox(height: 28),
-      ...chapter.paragraphs.map(
-        (paragraph) => Padding(
-          padding: EdgeInsets.only(bottom: settings.paragraphSpacing),
-          child: Text(
-            '${settings.firstLineIndent ? '　　' : ''}$paragraph',
-            style: TextStyle(
-              color: foreground,
-              fontSize: settings.fontSize,
-              height: settings.lineHeight,
-              letterSpacing: settings.letterSpacing,
-            ),
-          ),
-        ),
-      ),
-    ],
-  );
-}
-
-class _ReaderPageText extends StatelessWidget {
-  const _ReaderPageText({
-    required this.chapterTitle,
-    required this.text,
-    required this.page,
-    required this.pageCount,
-    required this.settings,
-    required this.foreground,
-  });
-
-  final String chapterTitle;
-  final String text;
-  final int page;
-  final int pageCount;
-  final ReaderSettings settings;
-  final Color foreground;
-
-  @override
-  Widget build(BuildContext context) => ColoredBox(
-    color: settings.palette.background,
-    child: Padding(
+    final foreground = settings.palette.foreground;
+    return ListView(
       padding: EdgeInsets.fromLTRB(
         settings.horizontalPadding,
-        28,
+        62,
         settings.horizontalPadding,
-        24,
+        118,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            chapterTitle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: foreground.withValues(alpha: page == 1 ? 1 : .55),
-              fontSize: page == 1 ? settings.fontSize + 3 : 13,
-              fontWeight: page == 1 ? FontWeight.w700 : FontWeight.w500,
-            ),
+      children: [
+        Text(
+          chapter.title,
+          style: TextStyle(
+            color: foreground,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
           ),
-          const SizedBox(height: 24),
-          Expanded(
+        ),
+        const SizedBox(height: 20),
+        ...chapter.paragraphs.map(
+          (paragraph) => Padding(
+            padding: EdgeInsets.only(bottom: settings.paragraphSpacing),
             child: Text(
-              text,
+              _convertScript(
+                settings.firstLineIndent ? '　　$paragraph' : paragraph,
+                settings.script,
+              ),
               style: TextStyle(
                 color: foreground,
                 fontSize: settings.fontSize,
                 height: settings.lineHeight,
                 letterSpacing: settings.letterSpacing,
+                fontWeight: FontWeight.w400,
               ),
             ),
           ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Text(
-              '$page / $pageCount',
-              style: TextStyle(
-                color: foreground.withValues(alpha: .42),
-                fontSize: 12,
-              ),
-            ),
+        ),
+        const SizedBox(height: 24),
+        Text(
+          '${chapter.index + 1}',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: foreground.withValues(alpha: .45),
+            fontSize: 10,
           ),
-        ],
-      ),
-    ),
-  );
+        ),
+      ],
+    );
+  }
 }
 
 class _ReaderTopBar extends StatelessWidget {
   const _ReaderTopBar({
     required this.title,
-    required this.night,
+    required this.chapter,
     required this.onBack,
+    required this.onSource,
+    required this.onMore,
   });
 
   final String title;
-  final bool night;
+  final String chapter;
   final VoidCallback onBack;
+  final VoidCallback onSource;
+  final VoidCallback onMore;
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: night ? const Color(0xFF20221F) : Colors.white,
-    elevation: 1,
-    child: SizedBox(
-      height: 58,
-      child: Row(
-        children: [
-          IconButton(
-            tooltip: '返回',
-            onPressed: onBack,
-            icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          ),
-          Expanded(
-            child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-          ),
-          IconButton(
-            tooltip: '书签',
-            onPressed: () {},
-            icon: const Icon(Icons.bookmark_border_rounded),
-          ),
-          IconButton(
-            tooltip: '更多',
-            onPressed: () {},
-            icon: const Icon(Icons.more_horiz_rounded),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-class _ChapterNavigationBar extends StatelessWidget {
-  const _ChapterNavigationBar({
-    required this.current,
-    required this.total,
-    required this.night,
-    required this.onPrevious,
-    required this.onNext,
-  });
-
-  final int current;
-  final int total;
-  final bool night;
-  final VoidCallback? onPrevious;
-  final VoidCallback? onNext;
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: night ? const Color(0xFF252824) : const Color(0xFFF6F7F3),
-    child: SizedBox(
-      height: 50,
-      child: Row(
-        children: [
-          Expanded(
-            child: TextButton.icon(
-              onPressed: onPrevious,
-              icon: const Icon(Icons.chevron_left_rounded),
-              label: const Text('上一章'),
+  Widget build(BuildContext context) => SafeArea(
+    bottom: false,
+    child: Material(
+      color: AppColors.surface.withValues(alpha: .97),
+      child: SizedBox(
+        height: 54,
+        child: Row(
+          children: [
+            IconButton(
+              tooltip: '返回',
+              onPressed: onBack,
+              icon: const Icon(Icons.chevron_left_rounded, size: 25),
             ),
-          ),
-          Text(
-            '$current / $total',
-            style: TextStyle(
-              color: night ? Colors.white54 : AppColors.secondaryText,
-              fontSize: 12,
+            Expanded(
+              child: Text(
+                '$title · $chapter',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.text,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
-          ),
-          Expanded(
-            child: TextButton.icon(
-              onPressed: onNext,
-              iconAlignment: IconAlignment.end,
-              icon: const Icon(Icons.chevron_right_rounded),
-              label: const Text('下一章'),
+            TextButton(
+              onPressed: onSource,
+              child: const Text(
+                '换源',
+                style: TextStyle(color: AppColors.secondaryText, fontSize: 10),
+              ),
             ),
-          ),
-        ],
+            IconButton(
+              tooltip: '更多',
+              onPressed: onMore,
+              icon: const Icon(Icons.more_horiz_rounded, size: 20),
+            ),
+          ],
+        ),
       ),
     ),
   );
@@ -1115,14 +833,26 @@ class _ChapterNavigationBar extends StatelessWidget {
 
 class _ReaderBottomBar extends StatelessWidget {
   const _ReaderBottomBar({
+    required this.progress,
+    required this.chapterIndex,
+    required this.total,
     required this.night,
+    required this.onProgressChanged,
+    required this.onPrevious,
+    required this.onNext,
     required this.onCatalog,
     required this.onNight,
     required this.onSettings,
     required this.onSources,
   });
 
+  final double progress;
+  final int chapterIndex;
+  final int total;
   final bool night;
+  final ValueChanged<double> onProgressChanged;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
   final VoidCallback onCatalog;
   final VoidCallback onNight;
   final VoidCallback onSettings;
@@ -1130,31 +860,75 @@ class _ReaderBottomBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Material(
-    color: night ? const Color(0xFF20221F) : Colors.white,
-    elevation: 8,
-    child: SizedBox(
-      height: 76,
-      child: Row(
+    color: AppColors.surface.withValues(alpha: .98),
+    child: SafeArea(
+      top: false,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          _ReaderAction(
-            icon: Icons.format_list_bulleted_rounded,
-            label: '目录',
-            onTap: onCatalog,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 7, 14, 0),
+            child: Row(
+              children: [
+                TextButton(onPressed: onPrevious, child: const Text('上一章')),
+                Expanded(
+                  child: Slider(
+                    value: progress.clamp(0, 1),
+                    onChanged: onProgressChanged,
+                  ),
+                ),
+                TextButton(onPressed: onNext, child: const Text('下一章')),
+              ],
+            ),
           ),
-          _ReaderAction(
-            icon: night ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-            label: '夜间',
-            onTap: onNight,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            child: Row(
+              children: [
+                Text(
+                  '${chapterIndex + 1}',
+                  style: const TextStyle(
+                    color: AppColors.tertiaryText,
+                    fontSize: 9,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '${(progress * 100).toStringAsFixed(1)}%',
+                  style: const TextStyle(
+                    color: AppColors.tertiaryText,
+                    fontSize: 9,
+                  ),
+                ),
+              ],
+            ),
           ),
-          _ReaderAction(
-            icon: Icons.text_fields_rounded,
-            label: '设置',
-            onTap: onSettings,
-          ),
-          _ReaderAction(
-            icon: Icons.swap_horiz_rounded,
-            label: '换源',
-            onTap: onSources,
+          const SizedBox(height: 3),
+          Row(
+            children: [
+              _ReaderAction(
+                icon: Icons.format_list_bulleted_rounded,
+                label: '目录',
+                onTap: onCatalog,
+              ),
+              _ReaderAction(
+                icon: night
+                    ? Icons.light_mode_outlined
+                    : Icons.dark_mode_outlined,
+                label: night ? '白天' : '夜间',
+                onTap: onNight,
+              ),
+              _ReaderAction(
+                icon: Icons.text_fields_rounded,
+                label: '设置',
+                onTap: onSettings,
+              ),
+              _ReaderAction(
+                icon: Icons.sync_alt_rounded,
+                label: '换源',
+                onTap: onSources,
+              ),
+            ],
           ),
         ],
       ),
@@ -1177,104 +951,173 @@ class _ReaderAction extends StatelessWidget {
   Widget build(BuildContext context) => Expanded(
     child: InkWell(
       onTap: onTap,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon),
-          const SizedBox(height: 5),
-          Text(label, style: const TextStyle(fontSize: 12)),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          children: [
+            Icon(icon, color: AppColors.text, size: 19),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.secondaryText,
+                fontSize: 9,
+              ),
+            ),
+          ],
+        ),
       ),
     ),
   );
 }
 
-class _SheetHandle extends StatelessWidget {
-  const _SheetHandle();
+class _ReaderError extends StatelessWidget {
+  const _ReaderError({required this.color, required this.onRetry});
+
+  final Color color;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) => Center(
-    child: Container(
-      width: 42,
-      height: 4,
-      margin: const EdgeInsets.symmetric(vertical: 10),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .18),
-        borderRadius: BorderRadius.circular(4),
-      ),
-    ),
-  );
-}
-
-class _SettingLine extends StatelessWidget {
-  const _SettingLine({required this.label, required this.child});
-
-  final String label;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 10),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        SizedBox(
-          width: 58,
-          child: Text(
-            label,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-        ),
-        Expanded(child: child),
+        Icon(Icons.error_outline_rounded, color: color),
+        const SizedBox(height: 8),
+        Text('章节加载失败', style: TextStyle(color: color, fontSize: 12)),
+        TextButton(onPressed: onRetry, child: const Text('重试')),
       ],
     ),
   );
 }
 
-class _PillButton extends StatelessWidget {
-  const _PillButton({required this.label, required this.onTap});
+class _SettingRow extends StatelessWidget {
+  const _SettingRow({required this.label, required this.child});
+
+  final String label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      SizedBox(
+        width: 62,
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: AppColors.text,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      Expanded(child: child),
+    ],
+  );
+}
+
+class _SquareButton extends StatelessWidget {
+  const _SquareButton({required this.label, required this.onTap});
 
   final String label;
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Expanded(
-    child: FilledButton.tonal(
-      onPressed: onTap,
-      style: FilledButton.styleFrom(
-        padding: const EdgeInsets.symmetric(vertical: 12),
+  Widget build(BuildContext context) => Material(
+    color: AppColors.sand,
+    borderRadius: BorderRadius.circular(8),
+    child: InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: onTap,
+      child: SizedBox(
+        width: 48,
+        height: 34,
+        child: Center(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: AppColors.text,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
       ),
-      child: Text(label, style: const TextStyle(fontSize: 18)),
     ),
   );
 }
 
-class _AdvancedSlider extends StatelessWidget {
-  const _AdvancedSlider({
-    required this.label,
-    required this.value,
-    required this.min,
-    required this.max,
-    required this.onChanged,
+class _SelectionBox extends StatelessWidget {
+  const _SelectionBox({
+    required this.selected,
+    required this.onTap,
+    required this.child,
   });
 
-  final String label;
-  final double value;
-  final double min;
-  final double max;
-  final ValueChanged<double> onChanged;
+  final bool selected;
+  final VoidCallback onTap;
+  final Widget child;
 
   @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      SizedBox(width: 68, child: Text(label)),
-      Expanded(
-        child: Slider(value: value, min: min, max: max, onChanged: onChanged),
+  Widget build(BuildContext context) => Material(
+    color: selected ? AppColors.coralSoft : AppColors.sand,
+    borderRadius: BorderRadius.circular(8),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        height: 36,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected ? AppColors.coral : Colors.transparent,
+            width: .8,
+          ),
+        ),
+        child: child,
       ),
-      SizedBox(
-        width: 38,
-        child: Text(value.toStringAsFixed(1), textAlign: TextAlign.end),
-      ),
-    ],
+    ),
   );
+}
+
+String _convertScript(String value, ReaderScript script) {
+  if (script == ReaderScript.simplified) return value;
+  const replacements = {
+    '这': '這',
+    '个': '個',
+    '为': '為',
+    '么': '麼',
+    '说': '說',
+    '话': '話',
+    '没': '沒',
+    '时': '時',
+    '间': '間',
+    '门': '門',
+    '开': '開',
+    '关': '關',
+    '书': '書',
+    '来': '來',
+    '后': '後',
+    '里': '裡',
+    '发': '發',
+    '现': '現',
+    '长': '長',
+    '过': '過',
+    '还': '還',
+    '远': '遠',
+    '风': '風',
+    '钟': '鐘',
+    '声': '聲',
+    '轻': '輕',
+    '经': '經',
+    '实': '實',
+    '秘': '祕',
+  };
+  var converted = value;
+  for (final entry in replacements.entries) {
+    converted = converted.replaceAll(entry.key, entry.value);
+  }
+  return converted;
 }
