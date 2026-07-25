@@ -1,8 +1,9 @@
 import re
 import urllib.parse
+from typing import List, Optional
 
 import httpx
-from typing import List, Optional
+
 from app.schemas.videos import VideoDetail, VideoSimple
 
 

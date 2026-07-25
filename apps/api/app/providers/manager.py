@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
+
 from app.providers.base import BaseProvider
 from app.providers.cms_json import CmsJsonProvider
 from app.schemas.videos import VideoSimple

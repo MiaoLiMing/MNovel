@@ -18,9 +18,9 @@ from app.schemas.content import (
     HomeResponse,
     NovelStatus,
     PlaybackLine,
+    ProgressUpdate,
     ReaderSummary,
     SearchMeta,
-    ProgressUpdate,
     SourceImport,
     SourceOrderUpdate,
     SourceStatus,
@@ -64,7 +64,9 @@ def create_router(
             raise HTTPException(status_code=404, detail="内容不存在")
         return item
 
-    def present_source(item: dict, *, health: str | None = None, latency: int = 0) -> SourceStatus:
+    def present_source(
+        item: dict, *, health: str | None = None, latency: int = 0
+    ) -> SourceStatus:
         config = item["config"]
         base_url = str(config.get("base_url", ""))
         resolved_health = health or (
@@ -337,7 +339,9 @@ def create_router(
     def reader_summary(store: Database = Depends(db)) -> ReaderSummary:
         favorites_count = len(store.list_favorite_ids(Channel.novel.value))
         progress_values = store.list_progress()
-        completed = sum(1 for entry in progress_values if float(entry["position"]) >= 0.98)
+        completed = sum(
+            1 for entry in progress_values if float(entry["position"]) >= 0.98
+        )
         estimated_minutes = sum(
             max(8, int(entry["unit_index"]) * 3 + float(entry["position"]) * 12)
             for entry in progress_values
@@ -498,6 +502,7 @@ def create_router(
         master_url: str | None = Query(default=None),
     ) -> Response:
         import urllib.parse
+
         from fastapi.responses import StreamingResponse
 
         target_url = url.strip()

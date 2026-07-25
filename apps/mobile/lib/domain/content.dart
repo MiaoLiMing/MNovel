@@ -105,7 +105,9 @@ class ContentItem {
 
   String get unitLabel => '章';
 
-  bool get hasPlayableMedia => false;
+  bool get hasPlayableMedia => mediaPlaylists.any(
+    (playlist) => playlist.episodes.any((episode) => episode.url.isNotEmpty),
+  );
 
   String get wordCountLabel {
     if (wordCount >= 10000) {

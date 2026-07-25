@@ -100,11 +100,23 @@ class _ReaderPageState extends State<ReaderPage> {
   Future<Chapter> _chapterFuture(int index) =>
       _chapterFutures.putIfAbsent(index, () => _loadChapter(index));
 
-  Future<void> _saveProgress() => _progressStore.save(
-    widget.item.id,
-    chapterIndex: _chapterIndex,
-    ratio: (_chapterIndex + 1) / widget.item.episodeCount,
-  );
+  Future<void> _saveProgress() async {
+    final ratio = ((_chapterIndex + 1) / widget.item.episodeCount)
+        .clamp(0, 1)
+        .toDouble();
+    await _progressStore.save(
+      widget.item.id,
+      chapterIndex: _chapterIndex,
+      ratio: ratio,
+    );
+    unawaited(
+      _repository.syncProgress(
+        widget.item,
+        unitIndex: _chapterIndex,
+        position: ratio,
+      ),
+    );
+  }
 
   void _changeChapter(int index) {
     final target = index.clamp(0, widget.item.episodeCount - 1);

@@ -85,6 +85,7 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
     }
     if (!mounted) return;
     setState(() => _saved = !_saved);
+    unawaited(_repository.syncFavorite(_item, _saved));
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(_saved ? '已加入书架' : '已移出书架')));

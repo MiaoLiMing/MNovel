@@ -72,7 +72,13 @@ CATALOG: list[ContentDetail] = [
         status=NovelStatus.completed,
         latest_chapter="第1432章 新的旅程",
         tags=["玄幻", "完结", "高口碑"],
-        source_labels=["起点中文网", "纵横中文网", "番茄小说", "七猫小说", "自定义书源"],
+        source_labels=[
+            "起点中文网",
+            "纵横中文网",
+            "番茄小说",
+            "七猫小说",
+            "自定义书源",
+        ],
     ),
     _book(
         book_id="novel-fate-ring",
@@ -234,7 +240,9 @@ class CatalogRepository:
         if channel == "男生":
             items = [item for item in items if "古言" not in item.category]
         elif channel == "女生":
-            items = [item for item in items if item.id in {"novel-judge", "novel-fate-ring"}]
+            items = [
+                item for item in items if item.id in {"novel-judge", "novel-fate-ring"}
+            ]
         elif channel == "出版":
             items = [item for item in items if item.status == NovelStatus.completed]
         if not items:

@@ -4,7 +4,6 @@ from typing import Annotated, Callable
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-
 _bearer = HTTPBearer(auto_error=False)
 
 

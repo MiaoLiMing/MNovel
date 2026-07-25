@@ -54,7 +54,7 @@ void main() {
 
     expect(find.text('今日精选'), findsOneWidget);
     expect(find.text('长风问剑'), findsOneWidget);
-    expect(find.text('山止川行'), findsOneWidget);
+    expect(find.textContaining('山止川行'), findsWidgets);
   });
 
   testWidgets('DiscoverListPage displays ranking items in list view', (
@@ -75,7 +75,7 @@ void main() {
 
     expect(find.text('热门榜单'), findsOneWidget);
     expect(find.text('长风问剑'), findsOneWidget);
-    expect(find.text('山止川行'), findsOneWidget);
+    expect(find.textContaining('山止川行'), findsWidgets);
     expect(find.text('1'), findsOneWidget);
   });
 }

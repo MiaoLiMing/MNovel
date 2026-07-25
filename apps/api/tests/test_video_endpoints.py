@@ -12,8 +12,11 @@ def test_videos_search(client):
     assert isinstance(data, list)
 
 
-def test_videos_parse(client):
+def test_videos_parse(client, monkeypatch):
     test_url = "https://play.hhuus.com/play/dyP9ryVb/index.m3u8"
+    monkeypatch.setattr(
+        "app.api.routes.validate_public_source_url", lambda value: value
+    )
     response = client.get(
         f"/api/v1/mnovel/videos/parse?source_id=1&play_url={test_url}"
     )

@@ -1,8 +1,10 @@
-import httpx
 import logging
-from typing import List, Optional, Dict
+from typing import Dict, List, Optional
+
+import httpx
+
 from app.providers.base import BaseProvider
-from app.schemas.videos import VideoSimple, VideoDetail, Episode
+from app.schemas.videos import Episode, VideoDetail, VideoSimple
 
 logger = logging.getLogger(__name__)
 

@@ -204,6 +204,44 @@ class ContentRepository {
     }
   }
 
+  /// 将本地状态异步同步到后端；失败时保留本地状态，避免弱网阻塞阅读。
+  Future<void> syncFavorite(ContentItem item, bool active) async {
+    try {
+      final response = await _client
+          .put(
+            _uri('/favorites/${Uri.encodeComponent(item.id)}'),
+            headers: const {'content-type': 'application/json'},
+            body: jsonEncode({'channel': item.channel.name, 'active': active}),
+          )
+          .timeout(const Duration(seconds: 8));
+      if (response.statusCode != 204) return;
+    } catch (_) {
+      // 本地书架是主状态，后端同步在下一次操作时重试。
+    }
+  }
+
+  Future<void> syncProgress(
+    ContentItem item, {
+    required int unitIndex,
+    required double position,
+  }) async {
+    try {
+      await _client
+          .put(
+            _uri('/progress/${Uri.encodeComponent(item.id)}'),
+            headers: const {'content-type': 'application/json'},
+            body: jsonEncode({
+              'channel': item.channel.name,
+              'unit_index': unitIndex,
+              'position': position.clamp(0, 1),
+            }),
+          )
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {
+      // 本地阅读进度不依赖网络。
+    }
+  }
+
   Future<List<ContentItem>> alternatives(ContentItem item) async {
     final discovered = await discover(item.channel, query: item.title);
     final expectedTitle = _normalizeTitle(item.title);

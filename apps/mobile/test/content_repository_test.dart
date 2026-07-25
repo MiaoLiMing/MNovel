@@ -72,4 +72,25 @@ void main() {
     expect(items.single.title, '云上长歌');
     expect(items.single.sourceName, '自定义测试源');
   });
+
+  test('媒体线路反序列化后可被识别为可播放内容', () {
+    final item = ContentItem.fromJson({
+      'id': 'media-1',
+      'title': '测试媒体',
+      'creator': '测试作者',
+      'category': '短剧',
+      'summary': '简介',
+      'cover': '',
+      'media_playlists': [
+        {
+          'name': '直连',
+          'episodes': [
+            {'name': '第 1 集', 'url': 'https://cdn.example.com/1.m3u8'},
+          ],
+        },
+      ],
+    });
+
+    expect(item.hasPlayableMedia, isTrue);
+  });
 }

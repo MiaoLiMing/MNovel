@@ -5,7 +5,6 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Iterator
 
-
 DEFAULT_SOURCES: list[tuple[str, str, str, int, int, dict[str, Any]]] = [
     (
         "qidian",
@@ -237,7 +236,9 @@ class Database:
             config = json.loads(row["config_json"])
             if bool(config.get("built_in")):
                 return False
-            result = connection.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+            result = connection.execute(
+                "DELETE FROM sources WHERE id = ?", (source_id,)
+            )
         return result.rowcount > 0
 
     def get_source(self, source_id: str) -> dict[str, Any] | None:
