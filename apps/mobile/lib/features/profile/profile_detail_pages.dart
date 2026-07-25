@@ -6,6 +6,7 @@ import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/content_cover.dart';
 import '../../data/shelf_store.dart';
 import '../../data/reading_progress_store.dart';
+import '../../data/offline_library.dart';
 import '../../domain/content.dart';
 import '../detail/content_detail_page.dart';
 
@@ -597,20 +598,25 @@ class _CacheManagementPageState extends State<CacheManagementPage> {
 
   Future<void> _loadCacheSizes() async {
     final prefs = await SharedPreferences.getInstance();
+    final offlineBooks = await OfflineLibraryStore().listBooks();
+    final offlineSize =
+        offlineBooks.fold<int>(0, (sum, book) => sum + book.bytes) /
+        1024 /
+        1024;
     final progressRaw = prefs.getString('reading.progress.v1') ?? '';
     final progressSize = (progressRaw.length * 2.0) / 1024.0 / 1024.0;
     final shelfRaw = prefs.getString('shelf.items.v1') ?? '';
-    final imageCacheSize = 12.4 + (shelfRaw.length * 2.0) / 1024.0 / 1024.0;
+    final imageCacheSize = (shelfRaw.length * 2.0) / 1024.0 / 1024.0;
     final customSourcesRaw = prefs.getString('content.sources.custom.v1') ?? '';
-    final videoSize = 3.6 + (customSourcesRaw.length * 2.0) / 1024.0 / 1024.0;
-    final tempSize = 0.4 + (prefs.getKeys().length * 200.0) / 1024.0 / 1024.0;
+    final videoSize = (customSourcesRaw.length * 2.0) / 1024.0 / 1024.0;
+    final tempSize = (prefs.getKeys().length * 200.0) / 1024.0 / 1024.0;
 
     if (!mounted) return;
     setState(() {
-      _sizes['小说章节正文'] = progressSize;
+      _sizes['小说章节正文'] = offlineSize;
       _sizes['图片与海报缓存'] = imageCacheSize;
       _sizes['播放器缓存数据'] = videoSize;
-      _sizes['临时偏好配置'] = tempSize;
+      _sizes['临时偏好配置'] = tempSize + progressSize;
       _loading = false;
     });
   }
@@ -618,7 +624,7 @@ class _CacheManagementPageState extends State<CacheManagementPage> {
   Future<void> _clearCategory(String key) async {
     final prefs = await SharedPreferences.getInstance();
     if (key == '小说章节正文') {
-      await prefs.remove('reading.progress.v1');
+      await OfflineLibraryStore().clearAll();
     } else if (key == '图片与海报缓存') {
       await prefs.remove('shelf.items.v1');
     } else if (key == '播放器缓存数据') {
@@ -642,7 +648,18 @@ class _CacheManagementPageState extends State<CacheManagementPage> {
 
   Future<void> _clearAll() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
+    await OfflineLibraryStore().clearAll();
+    for (final key
+        in prefs
+            .getKeys()
+            .where(
+              (key) =>
+                  key.startsWith('offline.chapter.') ||
+                  key.startsWith('offline.v2.chapter.'),
+            )
+            .toList()) {
+      await prefs.remove(key);
+    }
     await _loadCacheSizes();
     if (!mounted) return;
     ScaffoldMessenger.of(

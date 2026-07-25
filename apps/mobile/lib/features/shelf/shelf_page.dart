@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../../app/app_shell.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/content_cover.dart';
 import '../../core/widgets/novel_widgets.dart';
 import '../../data/shelf_store.dart';
 import '../../domain/content.dart';
@@ -259,12 +258,7 @@ class _RecentReadingCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ContentCover(
-              asset: item.coverAsset,
-              width: 72,
-              height: 104,
-              radius: 6,
-            ),
+            OfflineContentCover(item: item, width: 72, height: 104, radius: 6),
             const SizedBox(width: 12),
             Expanded(
               child: Column(

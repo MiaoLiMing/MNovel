@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mnovel/app/mnovel_app.dart';
+import 'package:mnovel/domain/content.dart';
 import 'package:mnovel/features/reader/reader_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -79,5 +80,86 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('第 2 章  风从远山来'), findsOneWidget);
+  });
+
+  testWidgets('长章节先翻章内页，不会提前切到下一章', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({'reader.pageMode': 2});
+    final base = DemoRepository.items.first;
+    final item = base.copyWith(episodeCount: 2);
+    final chapters = [
+      Chapter(
+        index: 0,
+        title: '第一章 长章节',
+        paragraphs: List.generate(
+          70,
+          (index) => '这是第 $index 段很长的正文，用于验证阅读器会先切换章内页码。',
+        ),
+      ),
+      const Chapter(index: 1, title: '第二章 不应提前出现', paragraphs: ['下一章正文']),
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaderPage(item: item, initialChapters: chapters),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('第一章 长章节'), findsWidgets);
+    await tester.drag(find.byType(PageView), const Offset(-340, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('第一章 长章节'), findsOneWidget);
+    expect(find.textContaining('第二章 不应提前出现'), findsNothing);
+    expect(find.textContaining('本章 2 /'), findsOneWidget);
+  });
+
+  testWidgets('仿真翻页模式启用透视明暗渲染', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({'reader.pageMode': 1});
+    final item = DemoRepository.items.first;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaderPage(
+          item: item,
+          initialChapters: const DemoRepository().chaptersFor(item),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ColorFiltered), findsWidgets);
+  });
+
+  testWidgets('阅读页右下角听书入口可进入完整听书页', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({});
+    final item = DemoRepository.items.first;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaderPage(
+          item: item,
+          initialChapters: const DemoRepository().chaptersFor(item),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.headphones_rounded));
+    await tester.pumpAndSettle();
+
+    expect(find.text('听书'), findsOneWidget);
+    expect(find.text('目录'), findsOneWidget);
+    expect(find.text('定时'), findsOneWidget);
+    expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
   });
 }

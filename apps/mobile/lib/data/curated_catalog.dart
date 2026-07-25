@@ -17,7 +17,7 @@ const curatedCatalog = <ContentItem>[
     status: NovelStatus.completed,
     latestChapter: '第1432章 新的旅程',
     tags: ['玄幻', '完结', '高口碑'],
-    sourceLabels: ['起点中文网', '纵横中文网', '番茄小说', '七猫小说', '自定义书源'],
+    sourceLabels: ['内置试读'],
   ),
   ContentItem(
     id: 'novel-fate-ring',
@@ -34,7 +34,7 @@ const curatedCatalog = <ContentItem>[
     wordCount: 3100000,
     latestChapter: '第868章 环与门',
     tags: ['玄幻', '连载中', '诡秘'],
-    sourceLabels: ['起点中文网', '纵横中文网', '自定义书源'],
+    sourceLabels: ['内置试读'],
   ),
   ContentItem(
     id: 'novel-sword-arrival',
@@ -51,7 +51,7 @@ const curatedCatalog = <ContentItem>[
     wordCount: 12000000,
     latestChapter: '第1120章 山雨入城',
     tags: ['仙侠', '连载中', '剑道'],
-    sourceLabels: ['纵横中文网', '七猫小说', '自定义书源'],
+    sourceLabels: ['内置试读'],
   ),
   ContentItem(
     id: 'novel-weird-immortal',
@@ -69,7 +69,7 @@ const curatedCatalog = <ContentItem>[
     status: NovelStatus.completed,
     latestChapter: '第1058章 归途',
     tags: ['仙侠', '完结', '悬疑'],
-    sourceLabels: ['起点中文网', '番茄小说', '自定义书源'],
+    sourceLabels: ['内置试读'],
   ),
   ContentItem(
     id: 'novel-night-guard',
@@ -87,7 +87,7 @@ const curatedCatalog = <ContentItem>[
     status: NovelStatus.completed,
     latestChapter: '第910章 人间长安',
     tags: ['仙侠', '完结', '探案'],
-    sourceLabels: ['起点中文网', '七猫小说', '自定义书源'],
+    sourceLabels: ['内置试读'],
   ),
   ContentItem(
     id: 'novel-red-heart',
@@ -104,7 +104,7 @@ const curatedCatalog = <ContentItem>[
     wordCount: 7200000,
     latestChapter: '第1516章 天涯同路',
     tags: ['仙侠', '连载中', '群像'],
-    sourceLabels: ['起点中文网', '纵横中文网', '自定义书源'],
+    sourceLabels: ['内置试读'],
   ),
   ContentItem(
     id: 'novel-chaotic-era',
@@ -122,7 +122,7 @@ const curatedCatalog = <ContentItem>[
     status: NovelStatus.completed,
     latestChapter: '第788章 书尽人间',
     tags: ['武侠', '完结', '江湖'],
-    sourceLabels: ['起点中文网', '番茄小说', '自定义书源'],
+    sourceLabels: ['内置试读'],
   ),
   ContentItem(
     id: 'novel-judge',
@@ -139,7 +139,7 @@ const curatedCatalog = <ContentItem>[
     wordCount: 1890000,
     latestChapter: '第672章 子夜来客',
     tags: ['都市', '连载中', '灵异'],
-    sourceLabels: ['番茄小说', '七猫小说', '自定义书源'],
+    sourceLabels: ['内置试读'],
   ),
 ];
 

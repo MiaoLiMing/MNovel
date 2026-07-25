@@ -1,38 +1,65 @@
-# MNovel 第二版重构交付说明
+# MNovel 阅读、听书、书源与离线能力交付说明
 
-## 改动概览
+## 交付结论
 
-本轮接续既有重构，完成小说领域 API、Flutter 页面链路和本地/云端状态协同。后端目录、搜索、筛选、详情、章节、收藏、进度、历史、统计和书源管理形成完整契约；Flutter 端覆盖设计稿中的十个主要视图，并保留离线阅读与自定义书源能力。
+本轮五项需求均已落地。阅读器现在以章内页面为翻页单位，读完当前章最后一页才进入下一章第一页；四种翻页模式具有独立行为；听书、离线下载和离线书库已形成完整链路；书城不再只依赖固定的 8 本静态目录，而是聚合公开书源和用户配置书源。
 
-移动端原先依赖缺失的 `flutter_js` 包，现改为应用内 `mnovel/js_runner` 平台通道：Android 使用系统 WebView，iOS 使用 WKWebView，Web 继续使用浏览器 JS 引擎。这样不需要第三方包缓存即可保留 JSON/JS 书源解析能力。
+## 一、阅读分页与动画
 
-收藏和阅读进度先写入本地，再以 best-effort 方式同步 FastAPI；网络失败不会阻塞打开详情、翻章或退出阅读器。
+- 使用 `TextPainter` 按实际阅读区域、字体、字号、字距、行高、边距和段首缩进计算分页。
+- 阅读进度增加章内页码和字符偏移；字号、方向或窗口尺寸变化后会按字符位置恢复。
+- 左右点击、滑动和自动翻页都先翻章内页；章首/章末通过边界页无缝衔接相邻章节。
+- 覆盖模式使用前后层位移和阴影，仿真模式使用透视旋转和明暗变化，滑动模式保持标准平移，无动画模式即时切换。
 
-## 验证命令与结果
+## 二、听书
+
+- 阅读页右下角固定听书入口，进入独立听书页面。
+- 基于系统 TTS，支持播放、暂停、停止、上一章、下一章、段落前后跳转。
+- 支持语速、音调、音量、系统语音选择和 15/30/60 分钟或本章结束后定时关闭。
+- 播放完成可自动续播下一章，并同步当前段落和章节状态。
+
+## 三、离线下载
+
+- 正文文件保存到应用文档目录，元数据由本地索引维护，不再把大段正文长期塞入偏好存储。
+- 下载队列最多并发 3 章，支持下载 20 章、50 章、全本或仅补缺失章节，并支持取消和失败重试。
+- 兼容迁移旧的 `offline.chapter.*` 缓存。
+- 书城、书架、详情、章节目录均显示完整或部分下载标识。
+- “我的 > 离线书库”可统一查看、继续阅读、重试、取消和删除已下载小说。
+
+## 四、动态书源
+
+- 已确认旧问题根因：原来的多个商业站点仅保存名称和网址，没有可执行适配器；书城失败时固定回退 8 本静态书目。
+- 默认启用 Gutendex、中文维基文库和 Internet Archive 公开来源，支持并发聚合、标准化去重、分页、失败隔离和 7 天目录缓存。
+- 中文维基文库会把同一作品的子页面聚合为一本多章节小说。
+- 书城刷新会轮换在线页码；发现列表支持滚动加载更多，不再每次展示完全相同的一小组书。
+- 书源管理支持批量导入 MNovel JSON/JS 清单。没有适配器或需授权的商业来源明确标记为“需要配置”，不再伪装成可用书源。
+- FastAPI 与 Flutter 的静态目录统一标记为“内置试读”，只提供首章，避免误导为完整在线书源。
+
+## 五、验证结果
+
+使用 Flutter 3.44.6 / Dart 3.12 兼容环境完成验证：
 
 ```text
-apps/api: python -m pytest -q                  10 passed
-apps/api: python -m ruff check app tests       passed
-apps/mobile: flutter test --no-pub             14 passed
-apps/mobile: dart analyze                      No issues found
+apps/mobile: flutter analyze --no-pub          No issues found
+apps/mobile: flutter test --no-pub             22 passed
 apps/mobile: flutter build web --release       Built build/web
+apps/mobile: flutter build apk --debug         Built app-debug.apk
+apps/api:    python -m pytest -q                10 passed
+apps/api:    ruff check .                       All checks passed
 ```
 
-`flutter build apk --debug --no-pub` 和直接执行 Gradle 均被本机 socket 资源错误阻塞：`No buffer space available (maximum connections reached?): bind`。检查确认没有残留 Java/Gradle 进程；该限制发生在 Gradle 启动阶段，未进入 Kotlin 源码编译。
+真实接口烟雾验证：
 
-## 主要产物
+- Gutendex 可返回动态分页目录。
+- 中文维基文库 `紅樓夢/` 子页查询返回多章节页面并可聚合。
+- Internet Archive 高级检索可返回中文馆藏；客户端额外使用中文标题/作者过滤，减少错误语言标注的结果。
 
-- `apps/api/app/schemas/content.py`
-- `apps/api/app/repositories/catalog.py`
-- `apps/api/app/api/routes.py`
-- `apps/api/tests/test_novel_endpoints.py`
-- `apps/mobile/lib/domain/content.dart`
-- `apps/mobile/lib/data/content_repository.dart`
-- `apps/mobile/lib/core/js_runner_mobile.dart`
-- `apps/mobile/android/app/src/main/kotlin/app/mnovel/mnovel/MainActivity.kt`
-- `apps/mobile/lib/features/reader/reader_page.dart`
-- `apps/mobile/test/content_repository_test.dart`
+Android 调试安装包位于：
 
-## 已知后续
+`apps/mobile/build/app/outputs/flutter-apk/app-debug.apk`
 
-在网络与 Gradle socket 资源恢复后，补跑 Android Debug/Release APK 和真机冷启动；在可联网环境补跑真实书源和媒体代理烟雾测试。现有离线契约、Widget 测试与 Web 构建不依赖这些外部条件。
+## 已知说明
+
+- Android 构建成功，但 `flutter_tts` 当前版本仍会触发 Flutter 关于旧式 Kotlin Gradle Plugin 接入方式的未来兼容性警告，不影响本次 APK 构建和当前功能。
+- iOS 需要在 macOS/Xcode 环境补做真机语音和后台策略验证；Windows 环境无法执行该项。
+- 公开来源的可用性受网络、地区和上游接口策略影响，应用已提供超时、失败隔离、缓存和静态试读兜底。

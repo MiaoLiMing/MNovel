@@ -14,6 +14,7 @@ class _MockListRepository extends ContentRepository {
     String status = '',
     String wordCount = '',
     String source = '',
+    int page = 1,
   }) async {
     return const [
       ContentItem(

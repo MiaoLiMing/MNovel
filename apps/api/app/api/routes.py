@@ -227,11 +227,16 @@ def create_router(
             raise HTTPException(status_code=400, detail="该内容不是小说")
         if chapter_index < 0 or chapter_index >= item.unit_count:
             raise HTTPException(status_code=404, detail="章节不存在")
+        if chapter_index > 0:
+            raise HTTPException(
+                status_code=424,
+                detail="该条目仅提供首章试读，请启用可用书源后继续阅读",
+            )
         chapter_title = chapter_titles[chapter_index % len(chapter_titles)]
         return ChapterContent(
             id=f"{content_id}-{chapter_index + 1}",
             index=chapter_index,
-            title=f"第 {chapter_index + 1} 章 {chapter_title}",
+            title=f"内置试读 · {chapter_title}",
             paragraphs=[
                 "“愚者”，梅林沉默地注视着这个年轻人。良久，他轻声说道：",
                 "“或许你还没有意识到，成为非凡者的你，已经不再是普通的你了。”",

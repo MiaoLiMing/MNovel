@@ -1,12 +1,11 @@
 import 'dart:async';
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../data/content_repository.dart';
 import '../../data/reading_progress_store.dart';
+import '../../data/offline_library.dart';
 import '../../domain/content.dart';
 
 class ChapterCatalogPage extends StatefulWidget {
@@ -29,6 +28,7 @@ class _ChapterCatalogPageState extends State<ChapterCatalogPage> {
   late final ContentRepository _repository;
   final _scrollController = ScrollController();
   final _progressStore = ReadingProgressStore();
+  final _offlineStore = OfflineLibraryStore();
   List<ChapterEntry> _chapters = const [];
   late String _source = widget.selectedSource;
   bool _loading = true;
@@ -36,6 +36,7 @@ class _ChapterCatalogPageState extends State<ChapterCatalogPage> {
   bool _descending = false;
   bool _subscribed = false;
   int _currentIndex = 0;
+  Set<int> _downloadedIndexes = const {};
   String? _error;
 
   @override
@@ -59,6 +60,13 @@ class _ChapterCatalogPageState extends State<ChapterCatalogPage> {
     final prefs = await SharedPreferences.getInstance();
     _currentIndex = progress.chapterIndex;
     _subscribed = prefs.getBool('book.subscribe.${widget.item.id}') ?? false;
+    final records = await _offlineStore.listBooks();
+    _downloadedIndexes =
+        records
+            .where((record) => record.item.id == widget.item.id)
+            .firstOrNull
+            ?.chapterIndexes ??
+        const {};
     await _loadInitial();
   }
 
@@ -120,19 +128,16 @@ class _ChapterCatalogPageState extends State<ChapterCatalogPage> {
 
   Future<void> _downloadCurrent() async {
     final chapter = await _repository.chapter(widget.item, _currentIndex);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      'offline.chapter.${widget.item.id}.$_currentIndex',
-      jsonEncode({
-        'title': chapter.title,
-        'paragraphs': chapter.paragraphs,
-        'source': _source,
-      }),
+    await _offlineStore.saveChapter(
+      item: widget.item,
+      sourceId: _source,
+      chapter: chapter,
     );
     if (!mounted) return;
+    setState(() => _downloadedIndexes = {..._downloadedIndexes, _currentIndex});
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('当前章节已缓存')));
+    ).showSnackBar(const SnackBar(content: Text('当前章节已下载')));
   }
 
   Future<void> _toggleSubscribe() async {
@@ -298,6 +303,14 @@ class _ChapterCatalogPageState extends State<ChapterCatalogPage> {
                     '当前',
                     style: TextStyle(color: AppColors.coral, fontSize: 9),
                   ),
+                if (_downloadedIndexes.contains(chapter.index)) ...[
+                  const SizedBox(width: 7),
+                  const Icon(
+                    Icons.download_done_rounded,
+                    size: 14,
+                    color: AppColors.success,
+                  ),
+                ],
               ],
             ),
           ),

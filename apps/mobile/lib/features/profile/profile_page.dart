@@ -3,11 +3,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../data/reading_progress_store.dart';
+import '../../data/offline_library.dart';
 import '../../data/shelf_store.dart';
 import '../../data/source_store.dart';
 import '../../domain/content.dart';
 import 'backup_restore_page.dart';
 import 'profile_detail_pages.dart';
+import 'offline_library_page.dart';
 import 'settings_page.dart';
 import 'source_management_page.dart';
 
@@ -23,6 +25,7 @@ class _ProfilePageState extends State<ProfilePage> {
   int _historyCount = 0;
   int _completedCount = 0;
   int _sourceCount = 0;
+  int _offlineCount = 0;
   double _readingHours = 0;
   double _cacheSize = 0;
   bool _loading = true;
@@ -37,6 +40,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final shelf = await ShelfStore().listAll();
     final progress = await ReadingProgressStore().getAllProgress();
     final sources = await SourceStore().list();
+    final offline = await OfflineLibraryStore().listBooks();
     final cacheSize = await _calculateCacheSize();
     if (!mounted) return;
     setState(() {
@@ -53,6 +57,7 @@ class _ProfilePageState extends State<ProfilePage> {
         return sum + chapter * .08 + ratio * .6;
       });
       _sourceCount = sources.length;
+      _offlineCount = offline.length;
       _cacheSize = cacheSize;
       _loading = false;
     });
@@ -60,6 +65,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<double> _calculateCacheSize() async {
     final prefs = await SharedPreferences.getInstance();
+    final offline = await OfflineLibraryStore().listBooks();
     var bytes = 0;
     for (final key in prefs.getKeys()) {
       final value = prefs.get(key);
@@ -69,6 +75,7 @@ class _ProfilePageState extends State<ProfilePage> {
         bytes += 8;
       }
     }
+    bytes += offline.fold<int>(0, (sum, book) => sum + book.bytes);
     return bytes / 1024 / 1024;
   }
 
@@ -265,6 +272,12 @@ class _ProfilePageState extends State<ProfilePage> {
                     title: '书源管理',
                     subtitle: '$_sourceCount 个来源',
                     onTap: () => _open(const SourceManagementPage()),
+                  ),
+                  _MenuTile(
+                    icon: Icons.download_done_rounded,
+                    title: '离线书库',
+                    subtitle: '$_offlineCount 本已下载小说',
+                    onTap: () => _open(const OfflineLibraryPage()),
                   ),
                   _MenuTile(
                     icon: Icons.inventory_2_outlined,

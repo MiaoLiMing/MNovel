@@ -37,10 +37,38 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final store = ReadingProgressStore();
 
-    await store.save('book-1', chapterIndex: 12, ratio: .48);
+    await store.save(
+      'book-1',
+      chapterIndex: 12,
+      pageIndex: 4,
+      characterOffset: 1680,
+      ratio: .48,
+    );
     final progress = await store.load('book-1');
 
     expect(progress.chapterIndex, 12);
     expect(progress.ratio, .48);
+    expect(progress.pageIndex, 4);
+    expect(progress.characterOffset, 1680);
+  });
+
+  test('支持批量导入 MNovel JSON 书源清单', () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = SourceStore();
+    final count = await store.importMany(
+      '{"sources":[{"name":"来源甲","kind":"json",'
+      '"endpoint":"https://example.com/a.json"},'
+      '{"name":"来源乙","kind":"js",'
+      '"endpoint":"https://example.com/b.js",'
+      '"rules":{"discover":"function discover(body){return body;}"}}]}',
+    );
+
+    expect(count, 2);
+    final sources = await store.list();
+    expect(sources.where((source) => source.name == '来源甲'), hasLength(1));
+    expect(
+      sources.singleWhere((source) => source.name == '来源乙').kind,
+      SourceKind.js,
+    );
   });
 }

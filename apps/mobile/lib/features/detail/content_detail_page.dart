@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,6 +7,9 @@ import 'package:flutter/services.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/content_cover.dart';
 import '../../data/content_repository.dart';
+import '../../data/offline_download_service.dart';
+import '../../data/offline_library.dart';
+import '../../data/offline_models.dart';
 import '../../data/shelf_store.dart';
 import '../../domain/content.dart';
 import '../profile/source_management_page.dart';
@@ -25,11 +29,15 @@ class ContentDetailPage extends StatefulWidget {
 class _ContentDetailPageState extends State<ContentDetailPage> {
   late final ContentRepository _repository;
   final _shelfStore = ShelfStore();
+  final _offlineStore = OfflineLibraryStore();
+  final _downloads = OfflineDownloadService.instance;
+  StreamSubscription<String>? _offlineSubscription;
   late ContentItem _item = widget.item;
   bool _loading = true;
   bool _saved = false;
   bool _summaryExpanded = false;
   bool _showAllSources = false;
+  OfflineBookStatus _offlineStatus = OfflineBookStatus.empty;
   String? _error;
   late String _selectedSource =
       widget.item.sourceLabels.firstOrNull ?? widget.item.sourceName;
@@ -38,11 +46,30 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
   void initState() {
     super.initState();
     _repository = widget.repository ?? ContentRepository();
+    _downloads.addListener(_onDownloadChanged);
+    _offlineSubscription = OfflineLibraryStore.changes.stream.listen((id) {
+      if (id == '*' || id == _item.id) unawaited(_restoreOfflineStatus());
+    });
     unawaited(_initialize());
   }
 
+  @override
+  void dispose() {
+    _downloads.removeListener(_onDownloadChanged);
+    _offlineSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _onDownloadChanged() {
+    if (mounted) setState(() {});
+  }
+
   Future<void> _initialize() async {
-    await Future.wait([_loadDetail(), _restoreSaved()]);
+    await Future.wait([
+      _loadDetail(),
+      _restoreSaved(),
+      _restoreOfflineStatus(),
+    ]);
   }
 
   Future<void> _loadDetail() async {
@@ -60,6 +87,7 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
             : detail.sourceLabels.firstOrNull ?? detail.sourceName;
         _loading = false;
       });
+      unawaited(_restoreOfflineStatus());
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -73,6 +101,98 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
     final saved = await _shelfStore.contains(_item.id);
     if (!mounted) return;
     setState(() => _saved = saved);
+  }
+
+  Future<void> _restoreOfflineStatus() async {
+    final status = await _offlineStore.status(_item.id);
+    if (!mounted) return;
+    setState(() => _offlineStatus = status);
+  }
+
+  Future<void> _showDownloadOptions() async {
+    final record = (await _offlineStore.listBooks())
+        .where((value) => value.item.id == _item.id)
+        .firstOrNull;
+    if (!mounted) return;
+    final previewOnly = _selectedSource == '内置试读';
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text('下载《${_item.title}》'),
+              subtitle: Text(
+                _offlineStatus.hasDownload
+                    ? '已下载 ${_offlineStatus.downloadedCount} / ${_item.episodeCount} 章'
+                    : '正文仅保存在本机，可断点续传',
+              ),
+            ),
+            const Divider(height: 1),
+            if (previewOnly)
+              const ListTile(
+                leading: Icon(Icons.info_outline_rounded),
+                title: Text('当前为内置试读'),
+                subtitle: Text('只提供首章示例。下载更多章节前，请先配置或切换可用书源。'),
+              ),
+            if (previewOnly)
+              ListTile(
+                leading: const Icon(Icons.download_outlined),
+                title: const Text('下载试读章节'),
+                onTap: () => Navigator.pop(sheetContext, '1'),
+              ),
+            if (!previewOnly) ...[
+              ListTile(
+                leading: const Icon(Icons.looks_two_outlined),
+                title: const Text('下载前 20 章'),
+                onTap: () => Navigator.pop(sheetContext, '20'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.filter_5_outlined),
+                title: const Text('下载前 50 章'),
+                onTap: () => Navigator.pop(sheetContext, '50'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.menu_book_rounded),
+                title: const Text('下载全本'),
+                subtitle: Text('共 ${_item.episodeCount} 章'),
+                onTap: () => Navigator.pop(sheetContext, 'all'),
+              ),
+              if (record != null && record.chapterIndexes.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.download_for_offline_outlined),
+                  title: const Text('仅下载未完成章节'),
+                  onTap: () => Navigator.pop(sheetContext, 'missing'),
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+    if (selected == null) return;
+    final downloaded = record?.chapterIndexes ?? const <int>{};
+    final limit = switch (selected) {
+      '1' => 1,
+      '20' => math.min(20, _item.episodeCount),
+      '50' => math.min(50, _item.episodeCount),
+      _ => _item.episodeCount,
+    };
+    final indexes = List.generate(
+      limit,
+      (index) => index,
+    ).where((index) => selected != 'missing' || !downloaded.contains(index));
+    await _downloads.download(
+      item: _item,
+      repository: _repository,
+      sourceId: _selectedSource,
+      chapterIndexes: indexes,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('已加入下载队列，共 $limit 章')));
   }
 
   Future<void> _toggleSaved() async {
@@ -419,6 +539,23 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
                 OutlinedButton(
                   onPressed: _toggleSaved,
                   child: Text(_saved ? '已在书架' : '加入书架'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: _loading ? null : _showDownloadOptions,
+                  icon: Icon(
+                    _offlineStatus.isComplete
+                        ? Icons.download_done_rounded
+                        : Icons.download_outlined,
+                    size: 17,
+                  ),
+                  label: Text(
+                    _offlineStatus.isComplete
+                        ? '已下载'
+                        : _offlineStatus.hasDownload
+                        ? '已下${_offlineStatus.downloadedCount}章'
+                        : '下载',
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(

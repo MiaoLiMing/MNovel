@@ -1,6 +1,15 @@
 import 'content.dart';
 
-enum SourceKind { localCatalog, gutendex, tvmaze, itunes, json, js }
+enum SourceKind {
+  localCatalog,
+  gutendex,
+  wikisource,
+  internetArchive,
+  tvmaze,
+  itunes,
+  json,
+  js,
+}
 
 enum SourceHealth { healthy, checking, error, configurationRequired, unknown }
 
@@ -114,14 +123,46 @@ class ContentSource {
 
 const builtInContentSources = <ContentSource>[
   ContentSource(
+    id: 'project-gutenberg',
+    name: 'Project Gutenberg',
+    description: '7 万余本公共领域电子书 · 可搜索和离线阅读',
+    channels: {ContentChannel.novel},
+    kind: SourceKind.gutendex,
+    endpoint: 'https://gutendex.com/books/',
+    builtIn: true,
+    priority: 120,
+  ),
+  ContentSource(
+    id: 'zh-wikisource',
+    name: '中文维基文库',
+    description: '中文公共领域作品 · 支持全文搜索与离线阅读',
+    channels: {ContentChannel.novel},
+    kind: SourceKind.wikisource,
+    endpoint: 'https://zh.wikisource.org/w/api.php',
+    builtIn: true,
+    priority: 115,
+  ),
+  ContentSource(
+    id: 'internet-archive-chinese',
+    name: 'Internet Archive 中文馆藏',
+    description: '公开数字馆藏 · 优先筛选带可检索全文的中文书籍',
+    channels: {ContentChannel.novel},
+    kind: SourceKind.internetArchive,
+    endpoint: 'https://archive.org/advancedsearch.php',
+    builtIn: true,
+    priority: 110,
+  ),
+  ContentSource(
     id: 'qidian',
     name: '起点中文网',
     description: 'https://www.qidian.com',
     channels: {ContentChannel.novel},
     kind: SourceKind.localCatalog,
     endpoint: 'https://www.qidian.com',
+    enabled: false,
     builtIn: true,
     priority: 100,
+    health: SourceHealth.configurationRequired,
   ),
   ContentSource(
     id: 'zongheng',
@@ -130,8 +171,10 @@ const builtInContentSources = <ContentSource>[
     channels: {ContentChannel.novel},
     kind: SourceKind.localCatalog,
     endpoint: 'https://www.zongheng.com',
+    enabled: false,
     builtIn: true,
     priority: 90,
+    health: SourceHealth.configurationRequired,
   ),
   ContentSource(
     id: 'fanqie',
@@ -140,8 +183,10 @@ const builtInContentSources = <ContentSource>[
     channels: {ContentChannel.novel},
     kind: SourceKind.localCatalog,
     endpoint: 'https://fanqienovel.com',
+    enabled: false,
     builtIn: true,
     priority: 80,
+    health: SourceHealth.configurationRequired,
   ),
   ContentSource(
     id: 'qimao',
@@ -150,8 +195,10 @@ const builtInContentSources = <ContentSource>[
     channels: {ContentChannel.novel},
     kind: SourceKind.localCatalog,
     endpoint: 'https://www.qimao.com',
+    enabled: false,
     builtIn: true,
     priority: 70,
+    health: SourceHealth.configurationRequired,
   ),
   ContentSource(
     id: 'faloo',
@@ -160,9 +207,10 @@ const builtInContentSources = <ContentSource>[
     channels: {ContentChannel.novel},
     kind: SourceKind.localCatalog,
     endpoint: 'https://b.faloo.com',
+    enabled: false,
     builtIn: true,
     priority: 60,
-    health: SourceHealth.checking,
+    health: SourceHealth.configurationRequired,
   ),
   ContentSource(
     id: 'jjwxc',
@@ -171,8 +219,10 @@ const builtInContentSources = <ContentSource>[
     channels: {ContentChannel.novel},
     kind: SourceKind.localCatalog,
     endpoint: 'https://www.jjwxc.net',
+    enabled: false,
     builtIn: true,
     priority: 50,
+    health: SourceHealth.configurationRequired,
   ),
   ContentSource(
     id: 'ciweimao',
@@ -184,6 +234,7 @@ const builtInContentSources = <ContentSource>[
     enabled: false,
     builtIn: true,
     priority: 40,
+    health: SourceHealth.configurationRequired,
   ),
   ContentSource(
     id: 'custom-example',

@@ -3,10 +3,17 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ReadingProgress {
-  const ReadingProgress({required this.chapterIndex, required this.ratio});
+  const ReadingProgress({
+    required this.chapterIndex,
+    required this.ratio,
+    this.pageIndex = 0,
+    this.characterOffset = 0,
+  });
 
   final int chapterIndex;
   final double ratio;
+  final int pageIndex;
+  final int characterOffset;
 }
 
 class ReadingProgressStore {
@@ -21,6 +28,8 @@ class ReadingProgressStore {
     return ReadingProgress(
       chapterIndex: value['chapter_index'] as int? ?? 0,
       ratio: (value['ratio'] as num?)?.toDouble() ?? 0,
+      pageIndex: value['page_index'] as int? ?? 0,
+      characterOffset: value['character_offset'] as int? ?? 0,
     );
   }
 
@@ -28,12 +37,16 @@ class ReadingProgressStore {
     String contentId, {
     required int chapterIndex,
     required double ratio,
+    int pageIndex = 0,
+    int characterOffset = 0,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final values = await _read();
     values[contentId] = {
       'chapter_index': chapterIndex,
       'ratio': ratio.clamp(0, 1),
+      'page_index': pageIndex,
+      'character_offset': characterOffset,
       'updated_at': DateTime.now().toIso8601String(),
     };
     await prefs.setString(_key, jsonEncode(values));

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import '../../core/theme/app_theme.dart';
@@ -50,7 +51,9 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
     SourceHealth health;
     try {
       final endpoint = source.endpoint.trim();
-      if (endpoint.isEmpty || endpoint == '[]') {
+      if (source.kind == SourceKind.localCatalog) {
+        health = SourceHealth.configurationRequired;
+      } else if (endpoint.isEmpty || endpoint == '[]') {
         health = SourceHealth.configurationRequired;
       } else if (endpoint.startsWith('[') || endpoint.startsWith('{')) {
         health = SourceHealth.healthy;
@@ -237,6 +240,62 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
     }
   }
 
+  Future<void> _showImporter() async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('批量导入书源'),
+        content: SizedBox(
+          width: 440,
+          child: TextField(
+            controller: controller,
+            minLines: 8,
+            maxLines: 14,
+            decoration: const InputDecoration(
+              hintText:
+                  '[{"name":"我的书源","kind":"json","endpoint":"https://example.com/books.json"}]',
+              helperText: '支持 MNovel JSON/JS 清单，可粘贴数组或 {"sources": [...]}',
+              alignLabelWithHint: true,
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              final data = await Clipboard.getData(Clipboard.kTextPlain);
+              controller.text = data?.text ?? '';
+            },
+            child: const Text('从剪贴板粘贴'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text),
+            child: const Text('导入'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result == null || result.trim().isEmpty) return;
+    try {
+      final count = await _store.importMany(result);
+      await _reload();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('已导入 $count 个书源')));
+    } on FormatException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -247,6 +306,11 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
       ),
       title: const Text('书源管理'),
       actions: [
+        IconButton(
+          tooltip: '批量导入',
+          onPressed: _showImporter,
+          icon: const Icon(Icons.file_download_outlined, size: 19),
+        ),
         TextButton(
           onPressed: () => setState(() => _editing = !_editing),
           child: Text(

@@ -72,13 +72,7 @@ CATALOG: list[ContentDetail] = [
         status=NovelStatus.completed,
         latest_chapter="第1432章 新的旅程",
         tags=["玄幻", "完结", "高口碑"],
-        source_labels=[
-            "起点中文网",
-            "纵横中文网",
-            "番茄小说",
-            "七猫小说",
-            "自定义书源",
-        ],
+        source_labels=["内置试读"],
     ),
     _book(
         book_id="novel-fate-ring",
@@ -94,7 +88,7 @@ CATALOG: list[ContentDetail] = [
         status=NovelStatus.serializing,
         latest_chapter="第868章 环与门",
         tags=["玄幻", "连载中", "诡秘"],
-        source_labels=["起点中文网", "纵横中文网", "自定义书源"],
+        source_labels=["内置试读"],
     ),
     _book(
         book_id="novel-sword-arrival",
@@ -110,7 +104,7 @@ CATALOG: list[ContentDetail] = [
         status=NovelStatus.serializing,
         latest_chapter="第1120章 山雨入城",
         tags=["仙侠", "连载中", "剑道"],
-        source_labels=["纵横中文网", "七猫小说", "自定义书源"],
+        source_labels=["内置试读"],
     ),
     _book(
         book_id="novel-weird-immortal",
@@ -126,7 +120,7 @@ CATALOG: list[ContentDetail] = [
         status=NovelStatus.completed,
         latest_chapter="第1058章 归途",
         tags=["仙侠", "完结", "悬疑"],
-        source_labels=["起点中文网", "番茄小说", "自定义书源"],
+        source_labels=["内置试读"],
     ),
     _book(
         book_id="novel-night-guard",
@@ -142,7 +136,7 @@ CATALOG: list[ContentDetail] = [
         status=NovelStatus.completed,
         latest_chapter="第910章 人间长安",
         tags=["仙侠", "完结", "探案"],
-        source_labels=["起点中文网", "七猫小说", "自定义书源"],
+        source_labels=["内置试读"],
     ),
     _book(
         book_id="novel-red-heart",
@@ -158,7 +152,7 @@ CATALOG: list[ContentDetail] = [
         status=NovelStatus.serializing,
         latest_chapter="第1516章 天涯同路",
         tags=["仙侠", "连载中", "群像"],
-        source_labels=["起点中文网", "纵横中文网", "自定义书源"],
+        source_labels=["内置试读"],
     ),
     _book(
         book_id="novel-chaotic-era",
@@ -174,7 +168,7 @@ CATALOG: list[ContentDetail] = [
         status=NovelStatus.completed,
         latest_chapter="第788章 书尽人间",
         tags=["武侠", "完结", "江湖"],
-        source_labels=["起点中文网", "番茄小说", "自定义书源"],
+        source_labels=["内置试读"],
     ),
     _book(
         book_id="novel-judge",
@@ -190,7 +184,7 @@ CATALOG: list[ContentDetail] = [
         status=NovelStatus.serializing,
         latest_chapter="第672章 子夜来客",
         tags=["都市", "连载中", "灵异"],
-        source_labels=["番茄小说", "七猫小说", "自定义书源"],
+        source_labels=["内置试读"],
     ),
 ]
 
@@ -321,12 +315,10 @@ class CatalogRepository:
                         FilterOption(value=value, label=value)
                         for value in [
                             "全部",
-                            "起点中文网",
-                            "纵横中文网",
-                            "番茄小说",
-                            "七猫小说",
-                            "飞卢小说",
-                            "刺猬猫",
+                            "Project Gutenberg",
+                            "中文维基文库",
+                            "Internet Archive 中文馆藏",
+                            "内置试读",
                             "自定义书源",
                         ]
                     ],

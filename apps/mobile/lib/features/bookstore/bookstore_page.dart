@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/content_cover.dart';
 import '../../core/widgets/novel_widgets.dart';
 import '../../data/content_repository.dart';
 import '../../domain/content.dart';
@@ -209,6 +208,51 @@ class _BookstorePageState extends State<BookstorePage> {
                 else if (_error != null)
                   _LoadError(message: _error!, onRetry: _load)
                 else ...[
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _data!.fromNetwork
+                          ? AppColors.sageSoft
+                          : AppColors.coralSoft,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _data!.fromNetwork
+                              ? Icons.public_rounded
+                              : _data!.fromCache
+                              ? Icons.offline_pin_rounded
+                              : Icons.cloud_off_rounded,
+                          size: 15,
+                          color: _data!.fromNetwork
+                              ? AppColors.success
+                              : AppColors.coral,
+                        ),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Text(
+                            _data!.fromNetwork
+                                ? _data!.failedSourceCount > 0
+                                      ? '已聚合 ${_data!.sourceCount - _data!.failedSourceCount} 个来源 · '
+                                            '${_data!.failedSourceCount} 个暂不可用 · 下拉换一批'
+                                      : '内容由 ${_data!.sourceCount} 个启用书源动态聚合 · 下拉可换一批'
+                                : _data!.fromCache
+                                ? '当前网络不可用，展示最近一次聚合缓存'
+                                : '书源暂不可用，正在展示本地兜底目录',
+                            style: const TextStyle(
+                              color: AppColors.secondaryText,
+                              fontSize: 9,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                   _HeroCarousel(
                     items: _data!.carousel,
                     controller: _carouselController,
@@ -466,12 +510,7 @@ class _PickGrid extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ContentCover(
-              asset: item.coverAsset,
-              width: 46,
-              height: 64,
-              radius: 5,
-            ),
+            OfflineContentCover(item: item, width: 46, height: 64, radius: 5),
             const SizedBox(width: 8),
             Expanded(
               child: Column(

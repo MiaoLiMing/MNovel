@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../domain/content.dart';
+import '../../data/offline_library.dart';
 import '../theme/app_theme.dart';
 import 'content_cover.dart';
 
@@ -147,8 +148,8 @@ class NovelListRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ContentCover(
-            asset: item.coverAsset,
+          OfflineContentCover(
+            item: item,
             width: compact ? 46 : 54,
             height: compact ? 62 : 72,
             radius: 6,
@@ -223,6 +224,66 @@ class NovelListRow extends StatelessWidget {
         ],
       ),
     ),
+  );
+}
+
+class OfflineContentCover extends StatelessWidget {
+  const OfflineContentCover({
+    super.key,
+    required this.item,
+    required this.width,
+    required this.height,
+    this.radius = 6,
+  });
+
+  final ContentItem item;
+  final double width;
+  final double height;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    children: [
+      ContentCover(
+        asset: item.coverAsset,
+        width: width,
+        height: height,
+        radius: radius,
+      ),
+      Positioned(
+        right: 3,
+        bottom: 3,
+        child: StreamBuilder<String>(
+          stream: OfflineLibraryStore.changes.stream,
+          builder: (context, _) => FutureBuilder(
+            future: OfflineLibraryStore().status(item.id),
+            builder: (context, snapshot) {
+              final status = snapshot.data;
+              if (status == null || !status.hasDownload) {
+                return const SizedBox.shrink();
+              }
+              return Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: status.isComplete
+                      ? AppColors.success
+                      : AppColors.coral,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 1),
+                ),
+                child: Icon(
+                  status.isComplete
+                      ? Icons.download_done_rounded
+                      : Icons.downloading_rounded,
+                  color: Colors.white,
+                  size: 11,
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    ],
   );
 }
 
