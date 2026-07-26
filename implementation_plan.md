@@ -1,6 +1,6 @@
 # MNovel 阅读、听书、书源与离线能力完善计划
 
-## 2026-07-25 阅读失败与书源架构修正计划（待批准）
+## 2026-07-25 阅读失败与书源架构修正计划（已完成）
 
 ### 已确认根因
 
@@ -56,9 +56,9 @@
 - 构建：Web Release、Android Debug/Release APK。
 - 网络烟雾：验证域名 TLS、`source-health`、首页、目录与章节接口。
 
-### 批准点
+### 批准记录
 
-本轮会同时修改 `MNovel` 和 `D:\work\project\AP\unified_backend` 两个工程。用户回复“1”或“同意”后开始实施。
+用户已回复“1”，批准同时修改 `MNovel` 和 `D:\work\project\AP\unified_backend` 两个工程。
 
 ## 状态
 

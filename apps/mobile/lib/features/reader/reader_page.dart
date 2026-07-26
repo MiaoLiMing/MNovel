@@ -121,13 +121,13 @@ class _ReaderPageState extends State<ReaderPage> {
   Future<Chapter> _chapterFuture(int index) =>
       _chapterFutures.putIfAbsent(index, () => _loadChapter(index));
 
-  Future<void> _loadAndPaginate({
+  Future<bool> _loadAndPaginate({
     int? targetPage,
     bool targetLastPage = false,
     int? characterOffset,
   }) async {
     final viewport = _viewport;
-    if (!_settingsLoaded || viewport == null) return;
+    if (!_settingsLoaded || viewport == null) return false;
     final textScaler = MediaQuery.textScalerOf(context);
     final token = ++_loadToken;
     setState(() {
@@ -142,7 +142,7 @@ class _ReaderPageState extends State<ReaderPage> {
         settings: _settings,
         textScaler: textScaler,
       );
-      if (!mounted || token != _loadToken) return;
+      if (!mounted || token != _loadToken) return false;
       var nextPage = targetLastPage
           ? pages.length - 1
           : targetPage ?? _pageIndex;
@@ -171,13 +171,16 @@ class _ReaderPageState extends State<ReaderPage> {
       });
       _preloadAdjacentChapters();
       unawaited(_saveProgress());
+      return true;
     } catch (error) {
-      if (!mounted || token != _loadToken) return;
+      _chapterFutures.remove(_chapterIndex);
+      if (!mounted || token != _loadToken) return false;
       setState(() {
         _loading = false;
         _switchingChapter = false;
         _loadError = error.toString();
       });
+      return false;
     }
   }
 
@@ -247,6 +250,10 @@ class _ReaderPageState extends State<ReaderPage> {
       }
       return;
     }
+    final previousChapterIndex = _chapterIndex;
+    final previousPageIndex = _pageIndex;
+    final previousPages = _pages;
+    final previousChapter = _chapter;
     setState(() {
       _switchingChapter = true;
       _chapterIndex = target;
@@ -254,7 +261,38 @@ class _ReaderPageState extends State<ReaderPage> {
       _pages = const [];
       _chapter = null;
     });
-    await _loadAndPaginate(targetLastPage: targetLastPage);
+    final loaded = await _loadAndPaginate(targetLastPage: targetLastPage);
+    if (loaded || !mounted) return;
+    final message = _loadError ?? '下一章暂时无法加载';
+    setState(() {
+      _chapterIndex = previousChapterIndex;
+      _pageIndex = previousPageIndex;
+      _pages = previousPages;
+      _chapter = previousChapter;
+      _loadError = null;
+      _loading = false;
+      _switchingChapter = false;
+      _controlsVisible = true;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_pageController.hasClients) {
+        _pageController.jumpToPage(_controllerPage);
+      }
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('$message，已返回当前章节'),
+            action: SnackBarAction(
+              label: '重试',
+              onPressed: () => unawaited(
+                _switchChapter(target, targetLastPage: targetLastPage),
+              ),
+            ),
+          ),
+        );
+    });
   }
 
   Future<void> _turnPage(int delta) async {
@@ -840,6 +878,7 @@ class _ReaderPageState extends State<ReaderPage> {
         return _ReaderError(
           color: foreground,
           message: _loadError!,
+          onChangeSource: _showSources,
           onRetry: () {
             _chapterFutures.remove(_chapterIndex);
             _loadAndPaginate();
@@ -1235,11 +1274,13 @@ class _ReaderError extends StatelessWidget {
     required this.color,
     required this.message,
     required this.onRetry,
+    required this.onChangeSource,
   });
 
   final Color color;
   final String message;
   final VoidCallback onRetry;
+  final VoidCallback onChangeSource;
 
   @override
   Widget build(BuildContext context) => Center(
@@ -1266,7 +1307,13 @@ class _ReaderError extends StatelessWidget {
             textAlign: TextAlign.center,
             style: TextStyle(color: color.withValues(alpha: .7), fontSize: 10),
           ),
-          TextButton(onPressed: onRetry, child: const Text('重试')),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextButton(onPressed: onChangeSource, child: const Text('切换书源')),
+              FilledButton.tonal(onPressed: onRetry, child: const Text('重试')),
+            ],
+          ),
         ],
       ),
     ),

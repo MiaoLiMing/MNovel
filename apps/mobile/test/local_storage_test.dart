@@ -6,6 +6,31 @@ import 'package:mnovel/domain/content_source.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  test('内置列表只保留三个可用公共书源', () async {
+    SharedPreferences.setMockInitialValues({
+      'content.sources.enabled.v1':
+          '{"qidian":true,"fanqie":true,"custom-example":true}',
+    });
+    final sources = await SourceStore().list();
+    final builtIns = sources.where((source) => source.builtIn).toList();
+
+    expect(
+      builtIns.map((source) => source.id),
+      containsAllInOrder([
+        'project-gutenberg',
+        'zh-wikisource',
+        'internet-archive-chinese',
+      ]),
+    );
+    expect(builtIns, hasLength(3));
+    expect(
+      builtIns.where(
+        (source) => source.health == SourceHealth.configurationRequired,
+      ),
+      isEmpty,
+    );
+  });
+
   test('来源启停与自定义 JSON 来源保存在本机', () async {
     SharedPreferences.setMockInitialValues({});
     final store = SourceStore();

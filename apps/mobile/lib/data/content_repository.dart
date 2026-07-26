@@ -69,6 +69,18 @@ class SearchMeta {
   final List<String> suggestions;
 }
 
+class SourceProbeResult {
+  const SourceProbeResult({
+    required this.health,
+    required this.latencyMs,
+    this.message = '',
+  });
+
+  final SourceHealth health;
+  final int latencyMs;
+  final String message;
+}
+
 class ContentRepository {
   ContentRepository({
     http.Client? client,
@@ -88,8 +100,17 @@ class ContentRepository {
   Future<HomeData> home({String channel = '推荐'}) async {
     final collected = <ContentItem>[];
     var reachedNetwork = false;
+    var reachedBackend = false;
+    final refreshPage =
+        ((DateTime.now().millisecondsSinceEpoch ~/ 86400000) +
+                _homeRefreshSeed++)
+            .remainder(30) +
+        1;
     try {
-      final data = await _getObject('/home', {'channel': channel});
+      final data = await _getObject('/home', {
+        'channel': channel,
+        'page': '$refreshPage',
+      });
       final sections = data['sections'] as List<dynamic>? ?? const [];
       List<ContentItem> sectionItems(String id) {
         for (final rawSection in sections) {
@@ -110,14 +131,14 @@ class ContentRepository {
         ..addAll(_parseItems(data['carousel']))
         ..addAll(sectionItems('editors-pick'))
         ..addAll(sectionItems('latest'));
+      reachedBackend = collected.isNotEmpty;
+      reachedNetwork = reachedBackend;
     } catch (_) {}
 
-    final refreshPage =
-        ((DateTime.now().millisecondsSinceEpoch ~/ 86400000) +
-                _homeRefreshSeed++)
-            .remainder(30) +
-        1;
-    var sourceItems = await _loadEnabledSourceCatalog(page: refreshPage);
+    var sourceItems = await _loadEnabledSourceCatalog(
+      page: refreshPage,
+      includePublicFallback: !reachedBackend,
+    );
     var fromCache = false;
     if (sourceItems.isNotEmpty) {
       reachedNetwork = true;
@@ -166,11 +187,13 @@ class ContentRepository {
       'page': '$page',
     };
     List<ContentItem> items;
+    var reachedBackend = false;
     try {
       final data = await _getList('/discover', queryParameters);
       items = data
           .map((value) => ContentItem.fromJson(value))
           .toList(growable: false);
+      reachedBackend = true;
     } catch (_) {
       items = _filterCurated(
         query: query,
@@ -184,6 +207,7 @@ class ContentRepository {
     final sourceItems = await _loadEnabledSourceCatalog(
       query: query,
       page: page,
+      includePublicFallback: !reachedBackend,
     );
     return _mergeItems([...sourceItems, ...items]);
   }
@@ -203,6 +227,68 @@ class ContentRepository {
       return SearchMeta(
         hot: hot,
         suggestions: hot.take(6).map((item) => item.title).toList(),
+      );
+    }
+  }
+
+  Future<SourceProbeResult> probeSource(ContentSource source) async {
+    if (!source.builtIn) {
+      final endpoint = source.endpoint.trim();
+      if (endpoint.isEmpty) {
+        return const SourceProbeResult(
+          health: SourceHealth.configurationRequired,
+          latencyMs: 0,
+          message: '请先填写来源地址或规则',
+        );
+      }
+      if (endpoint.startsWith('[') || endpoint.startsWith('{')) {
+        return const SourceProbeResult(
+          health: SourceHealth.healthy,
+          latencyMs: 0,
+          message: '本地规则格式有效',
+        );
+      }
+      final stopwatch = Stopwatch()..start();
+      try {
+        final response = await _client
+            .get(Uri.parse(endpoint))
+            .timeout(const Duration(seconds: 8));
+        stopwatch.stop();
+        return SourceProbeResult(
+          health: response.statusCode < 500
+              ? SourceHealth.healthy
+              : SourceHealth.error,
+          latencyMs: stopwatch.elapsedMilliseconds,
+          message: 'HTTP ${response.statusCode}',
+        );
+      } catch (error) {
+        stopwatch.stop();
+        return SourceProbeResult(
+          health: SourceHealth.error,
+          latencyMs: stopwatch.elapsedMilliseconds,
+          message: _networkErrorMessage(error),
+        );
+      }
+    }
+
+    final stopwatch = Stopwatch()..start();
+    try {
+      final data = await _getObject('/sources/${source.id}/health');
+      stopwatch.stop();
+      final status = data['status']?.toString() ?? 'error';
+      return SourceProbeResult(
+        health: status == 'healthy' ? SourceHealth.healthy : SourceHealth.error,
+        latencyMs:
+            (data['latency_ms'] as num?)?.toInt() ??
+            stopwatch.elapsedMilliseconds,
+        message: data['message']?.toString() ?? '',
+      );
+    } catch (error) {
+      stopwatch.stop();
+      return SourceProbeResult(
+        health: SourceHealth.error,
+        latencyMs: stopwatch.elapsedMilliseconds,
+        message: _networkErrorMessage(error),
       );
     }
   }
@@ -238,9 +324,11 @@ class ContentRepository {
       final data = await _getObject('/content/${item.id}');
       return ContentItem.fromJson(data).copyWith(progress: item.progress);
     } catch (_) {
-      return curatedCatalog.firstWhere(
-        (candidate) => candidate.id == item.id,
-        orElse: () => item,
+      return _asTrial(
+        curatedCatalog.firstWhere(
+          (candidate) => candidate.id == item.id,
+          orElse: () => item,
+        ),
       );
     }
   }
@@ -366,7 +454,7 @@ class ContentRepository {
       return Chapter.fromJson(data);
     } catch (error) {
       if (item.isLive || index > 0) {
-        throw ContentRepositoryException('章节加载失败：$error');
+        throw ContentRepositoryException(_networkErrorMessage(error));
       }
       return Chapter(
         index: index,
@@ -382,6 +470,29 @@ class ContentRepository {
         ],
       );
     }
+  }
+
+  String _networkErrorMessage(Object error) {
+    final message = error.toString().toLowerCase();
+    if (message.contains('certificate_verify_failed') ||
+        message.contains('handshakeexception') ||
+        message.contains('ip address mismatch')) {
+      return '安全连接校验失败，请检查服务地址或稍后重试';
+    }
+    if (message.contains('timed out') || message.contains('timeoutexception')) {
+      return '章节请求超时，请检查网络后重试';
+    }
+    if (message.contains('socketexception') ||
+        message.contains('failed host lookup') ||
+        message.contains('network is unreachable') ||
+        message.contains('connection refused')) {
+      return '当前网络不可用，且本章尚未下载';
+    }
+    if (message.contains('404') || message.contains('正文不存在')) {
+      return '当前书源没有提供这一章的正文';
+    }
+    if (error is ContentRepositoryException) return error.message;
+    return '章节暂时无法加载，请重试或切换书源';
   }
 
   Future<Map<String, dynamic>> _getObject(
@@ -427,14 +538,16 @@ class ContentRepository {
           .where(
             (item) => item.id == 'novel-judge' || item.id == 'novel-fate-ring',
           )
+          .map(_asTrial)
           .toList(growable: false);
     }
     if (channel == '出版') {
       return curatedCatalog
           .where((item) => item.status == NovelStatus.completed)
+          .map(_asTrial)
           .toList(growable: false);
     }
-    return curatedCatalog;
+    return curatedCatalog.map(_asTrial).toList(growable: false);
   }
 
   List<ContentItem> _filterCurated({
@@ -473,12 +586,20 @@ class ContentRepository {
               matchesSource &&
               _matchesWordCount(item.wordCount, wordCount);
         })
+        .map(_asTrial)
         .toList(growable: false);
   }
+
+  ContentItem _asTrial(ContentItem item) => item.copyWith(
+    episodeCount: 1,
+    latestChapter: '内置试读',
+    updateFrequency: '仅提供首章试读',
+  );
 
   Future<List<ContentItem>> _loadEnabledSourceCatalog({
     String query = '',
     int page = 1,
+    bool includePublicFallback = false,
   }) async {
     final sources = await _sourceStore.list();
     final enabled = sources.where((source) => source.enabled).toList()
@@ -486,9 +607,10 @@ class ContentRepository {
     final supported = enabled
         .where(
           (source) =>
-              source.kind == SourceKind.gutendex ||
-              source.kind == SourceKind.wikisource ||
-              source.kind == SourceKind.internetArchive ||
+              (includePublicFallback &&
+                  (source.kind == SourceKind.gutendex ||
+                      source.kind == SourceKind.wikisource ||
+                      source.kind == SourceKind.internetArchive)) ||
               source.kind == SourceKind.json ||
               source.kind == SourceKind.js,
         )

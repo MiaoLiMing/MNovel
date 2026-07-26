@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
 
 import '../../core/theme/app_theme.dart';
+import '../../data/content_repository.dart';
 import '../../data/source_store.dart';
 import '../../domain/content.dart';
 import '../../domain/content_source.dart';
@@ -18,6 +18,7 @@ class SourceManagementPage extends StatefulWidget {
 
 class _SourceManagementPageState extends State<SourceManagementPage> {
   final _store = SourceStore();
+  final _repository = ContentRepository();
   List<ContentSource> _sources = const [];
   final Map<String, SourceHealth> _healthOverrides = {};
   final Map<String, int> _latencyOverrides = {};
@@ -47,33 +48,75 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
 
   Future<void> _testSource(ContentSource source) async {
     setState(() => _healthOverrides[source.id] = SourceHealth.checking);
-    final stopwatch = Stopwatch()..start();
-    SourceHealth health;
-    try {
-      final endpoint = source.endpoint.trim();
-      if (source.kind == SourceKind.localCatalog) {
-        health = SourceHealth.configurationRequired;
-      } else if (endpoint.isEmpty || endpoint == '[]') {
-        health = SourceHealth.configurationRequired;
-      } else if (endpoint.startsWith('[') || endpoint.startsWith('{')) {
-        health = SourceHealth.healthy;
-      } else {
-        final response = await http
-            .get(Uri.parse(endpoint))
-            .timeout(const Duration(seconds: 6));
-        health = response.statusCode < 500
-            ? SourceHealth.healthy
-            : SourceHealth.error;
-      }
-    } catch (_) {
-      health = SourceHealth.error;
-    }
-    stopwatch.stop();
+    final result = await _repository.probeSource(source);
     if (!mounted) return;
     setState(() {
-      _healthOverrides[source.id] = health;
-      _latencyOverrides[source.id] = stopwatch.elapsedMilliseconds;
+      _healthOverrides[source.id] = result.health;
+      _latencyOverrides[source.id] = result.latencyMs;
     });
+    if (result.message.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${source.name}：${result.message}')),
+      );
+    }
+  }
+
+  Future<void> _showSourceDetails(ContentSource source) async {
+    if (!source.builtIn) {
+      await _showEditor(source: source);
+      return;
+    }
+    final (format, catalog, chapter, policy) = switch (source.kind) {
+      SourceKind.gutendex => (
+        'Gutendex REST JSON + Gutenberg TXT',
+        '支持分页搜索公共领域电子书',
+        '每本书读取公开纯文本正文',
+        '解析由统一后端完成，App 不保存站点规则',
+      ),
+      SourceKind.wikisource => (
+        'MediaWiki Action API JSON',
+        '按作品根页面聚合子页目录',
+        '每个子页面作为独立章节',
+        '解析由统一后端完成，遵循维基媒体公开接口',
+      ),
+      SourceKind.internetArchive => (
+        'Advanced Search JSON + Metadata + DjVu TXT',
+        '筛选带全文文件的中文公共馆藏',
+        '读取馆藏公开全文文件',
+        '解析由统一后端完成，并过滤错误语言标注',
+      ),
+      _ => ('未知', '未声明', '未声明', '未声明'),
+    };
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(source.name),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _SourceDetailLine(label: '数据格式', value: format),
+            _SourceDetailLine(label: '目录能力', value: catalog),
+            _SourceDetailLine(label: '正文能力', value: chapter),
+            _SourceDetailLine(label: '处理方式', value: policy),
+            _SourceDetailLine(label: '服务地址', value: source.endpoint),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('关闭'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              unawaited(_testSource(source));
+            },
+            child: const Text('检测可用性'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _testAll() async {
@@ -365,19 +408,41 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                     final health = _healthOverrides[source.id] ?? source.health;
                     final latency =
                         _latencyOverrides[source.id] ?? source.latencyMs;
-                    return _SourceRow(
+                    final startsCustom =
+                        !source.builtIn &&
+                        (index == 0 || _sources[index - 1].builtIn);
+                    return Column(
                       key: ValueKey(source.id),
-                      index: index,
-                      source: source,
-                      health: health,
-                      latencyMs: latency,
-                      editing: _editing,
-                      onTap: () => _testSource(source),
-                      onToggle: (value) => _toggle(source, value),
-                      onEdit: source.builtIn
-                          ? null
-                          : () => _showEditor(source: source),
-                      onDelete: source.builtIn ? null : () => _remove(source),
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (index == 0)
+                          const _SourceSectionLabel(
+                            title: '内置公共书源',
+                            subtitle: '异构格式由统一后端解析',
+                          ),
+                        if (startsCustom)
+                          _SourceSectionLabel(
+                            title: '我的书源',
+                            subtitle:
+                                '仅保存在当前设备 · ${_sources.where((item) => !item.builtIn).length} 个',
+                          ),
+                        _SourceRow(
+                          index: index,
+                          source: source,
+                          health: health,
+                          latencyMs: latency,
+                          editing: _editing,
+                          onTap: () => _showSourceDetails(source),
+                          onTest: () => _testSource(source),
+                          onToggle: (value) => _toggle(source, value),
+                          onEdit: source.builtIn
+                              ? null
+                              : () => _showEditor(source: source),
+                          onDelete: source.builtIn
+                              ? null
+                              : () => _remove(source),
+                        ),
+                      ],
                     );
                   },
                 ),
@@ -411,13 +476,13 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
 
 class _SourceRow extends StatelessWidget {
   const _SourceRow({
-    super.key,
     required this.index,
     required this.source,
     required this.health,
     required this.latencyMs,
     required this.editing,
     required this.onTap,
+    required this.onTest,
     required this.onToggle,
     this.onEdit,
     this.onDelete,
@@ -429,6 +494,7 @@ class _SourceRow extends StatelessWidget {
   final int latencyMs;
   final bool editing;
   final VoidCallback onTap;
+  final VoidCallback onTest;
   final ValueChanged<bool> onToggle;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
@@ -503,6 +569,12 @@ class _SourceRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 6),
+            IconButton(
+              tooltip: '检测',
+              onPressed: onTest,
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.network_check_rounded, size: 16),
+            ),
             if (editing && onEdit != null)
               IconButton(
                 tooltip: '编辑',
@@ -529,6 +601,59 @@ class _SourceRow extends StatelessWidget {
           ],
         ),
       ),
+    ),
+  );
+}
+
+class _SourceSectionLabel extends StatelessWidget {
+  const _SourceSectionLabel({required this.title, required this.subtitle});
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(10, 16, 10, 7),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              color: AppColors.text,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        Text(
+          subtitle,
+          style: const TextStyle(color: AppColors.tertiaryText, fontSize: 9),
+        ),
+      ],
+    ),
+  );
+}
+
+class _SourceDetailLine extends StatelessWidget {
+  const _SourceDetailLine({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(color: AppColors.tertiaryText, fontSize: 10),
+        ),
+        const SizedBox(height: 3),
+        SelectableText(value, style: const TextStyle(fontSize: 12)),
+      ],
     ),
   );
 }

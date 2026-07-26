@@ -24,6 +24,9 @@ class SourceStore {
     final sources = [...builtIns, ...custom];
     final order = _decodeOrder(prefs.getString(_orderKey));
     sources.sort((left, right) {
+      if (left.builtIn != right.builtIn) {
+        return left.builtIn ? -1 : 1;
+      }
       final leftIndex = order.indexOf(left.id);
       final rightIndex = order.indexOf(right.id);
       if (leftIndex >= 0 && rightIndex >= 0) {

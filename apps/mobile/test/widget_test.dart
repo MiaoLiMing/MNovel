@@ -1,11 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mnovel/app/mnovel_app.dart';
+import 'package:mnovel/data/content_repository.dart';
+import 'package:mnovel/data/source_store.dart';
 import 'package:mnovel/domain/content.dart';
+import 'package:mnovel/domain/content_source.dart';
 import 'package:mnovel/features/reader/reader_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fixtures/demo_repository.dart';
+
+class _FailingNextChapterRepository extends ContentRepository {
+  @override
+  Future<Chapter> chapter(
+    ContentItem item,
+    int index, {
+    bool preferOffline = true,
+  }) async {
+    if (index == 0) {
+      return const Chapter(
+        index: 0,
+        title: '第一章 可正常阅读',
+        paragraphs: ['当前章节正文。'],
+      );
+    }
+    throw const ContentRepositoryException('当前网络不可用，且本章尚未下载');
+  }
+}
 
 void main() {
   testWidgets('主导航完整展示书架、书城、分类和我的', (tester) async {
@@ -30,8 +51,38 @@ void main() {
     await tester.tap(find.text('书源管理'));
     await tester.pumpAndSettle();
 
-    expect(find.text('起点中文网'), findsOneWidget);
+    expect(find.text('Project Gutenberg'), findsOneWidget);
+    expect(find.text('中文维基文库'), findsOneWidget);
+    expect(find.text('Internet Archive 中文馆藏'), findsOneWidget);
+    expect(find.text('起点中文网'), findsNothing);
     expect(find.text('添加书源'), findsOneWidget);
+  });
+
+  testWidgets('自定义书源整行可点击进入配置', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await SourceStore().addCustom(
+      const ContentSource(
+        id: 'custom-editable',
+        name: '我的可编辑书源',
+        description: '仅保存在本机',
+        channels: {ContentChannel.novel},
+        kind: SourceKind.json,
+        endpoint: 'https://example.com/catalog.json',
+        builtIn: false,
+      ),
+    );
+    await tester.pumpWidget(const MNovelApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('书源管理'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('我的可编辑书源'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('编辑书源'), findsOneWidget);
+    expect(find.byType(TextField), findsNWidgets(2));
   });
 
   testWidgets('阅读器控制栏可以打开完整设置', (tester) async {
@@ -161,5 +212,31 @@ void main() {
     expect(find.text('目录'), findsOneWidget);
     expect(find.text('定时'), findsOneWidget);
     expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
+  });
+
+  testWidgets('下一章加载失败会回到当前章节而不是进入错误页', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({'reader.pageMode': 2});
+    final base = DemoRepository.items.first;
+    final item = base.copyWith(episodeCount: 2);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaderPage(
+          item: item,
+          repository: _FailingNextChapterRepository(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(PageView), const Offset(-340, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('第一章 可正常阅读'), findsWidgets);
+    expect(find.textContaining('已返回当前章节'), findsOneWidget);
+    expect(find.text('重试'), findsOneWidget);
   });
 }

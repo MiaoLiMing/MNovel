@@ -63,3 +63,58 @@ Android 调试安装包位于：
 - Android 构建成功，但 `flutter_tts` 当前版本仍会触发 Flutter 关于旧式 Kotlin Gradle Plugin 接入方式的未来兼容性警告，不影响本次 APK 构建和当前功能。
 - iOS 需要在 macOS/Xcode 环境补做真机语音和后台策略验证；Windows 环境无法执行该项。
 - 公开来源的可用性受网络、地区和上游接口策略影响，应用已提供超时、失败隔离、缓存和静态试读兜底。
+
+## 2026-07-25 阅读错误与书源后端化补充
+
+### 阅读页修复
+
+- App 默认接口从会触发证书 IP 不匹配的裸地址改为
+  `https://www.flowercat.art/api/v1/mnovel`。
+- 没有采用忽略证书或信任所有证书的危险方案。
+- 跨章前保留原章节、页码和排版结果。下一章失败时恢复原章节末页，
+  显示可读原因并提供重试；初始章节失败页同时提供“切换书源”。
+- TLS、超时、断网、404 和无正文会转换为用户提示，不再展示
+  `HandshakeException` 等底层堆栈信息。
+- 内置静态条目明确限制为一章试读，不再用虚假的几百章目录诱导继续翻章。
+
+### 书源管理
+
+- 删除起点、纵横、番茄、七猫、飞卢、晋江和刺猬猫七个没有真实适配器的商业占位项。
+- 内置列表只保留 Project Gutenberg、中文维基文库和 Internet Archive。
+- 页面区分“内置公共书源”和“我的书源”；点击内置来源可查看格式、目录、
+  正文能力和处理策略，点击自定义来源直接进入编辑配置。
+- 内置健康检查调用统一后端探测；用户 JSON/JS 规则仍只保存在设备上。
+
+### unified_backend
+
+`D:\work\project\AP\unified_backend\app\api\v1\mnovel` 已成为生产书源解析入口：
+
+- `sources.py` 定义统一适配器接口并实现三种异构公开来源；
+- `services.py` 实现并发聚合、标准化去重、TTL 缓存、缓存上限和单源失败隔离；
+- `router.py` 提供首页、发现、搜索、详情、目录、正文和来源健康接口；
+- 新增 5 项 MNovel 契约与适配器测试，全仓 27 项后端测试通过。
+
+真实上游验证结果：
+
+```text
+project-gutenberg             healthy
+zh-wikisource                 healthy
+internet-archive-chinese      healthy
+一次聚合                       46 本 / 3 个来源
+```
+
+### 最终验证
+
+```text
+Flutter Analyze               No issues found
+Flutter Test                  25 passed
+Web Release                   Built build/web
+Android Release APK           Built app-release.apk (75.0 MB)
+unified_backend MNovel Ruff   All checks passed
+unified_backend Pytest        27 passed
+www.flowercat.art TLS         verify_result=0, /health=200
+```
+
+生产域名当前 `/api/v1/mnovel/home` 仍返回 404，说明服务器尚未部署本次
+`unified_backend` 代码。App 在部署前会使用设备端公开来源适配器降级，不会再因
+证书错误进入不可恢复页面；部署后会自动改用统一后端作为主解析入口。
