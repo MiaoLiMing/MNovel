@@ -272,11 +272,13 @@ class Chapter {
     required this.title,
     required this.paragraphs,
     this.index = 0,
+    this.totalCount,
   });
 
   final String title;
   final List<String> paragraphs;
   final int index;
+  final int? totalCount;
 
   factory Chapter.fromJson(Map<String, dynamic> json) => Chapter(
     title: json['title'] as String? ?? '章节',
@@ -284,6 +286,7 @@ class Chapter {
         .map((value) => value.toString())
         .toList(growable: false),
     index: (json['index'] as num?)?.toInt() ?? 0,
+    totalCount: (json['unit_count'] as num?)?.toInt(),
   );
 }
 

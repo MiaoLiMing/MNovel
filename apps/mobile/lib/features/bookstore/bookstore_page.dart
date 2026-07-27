@@ -31,6 +31,7 @@ class _BookstorePageState extends State<BookstorePage> {
   String? _error;
   int _carouselIndex = 0;
   int _pickOffset = 0;
+  int _loadToken = 0;
   Timer? _carouselTimer;
 
   @override
@@ -58,15 +59,22 @@ class _BookstorePageState extends State<BookstorePage> {
   }
 
   Future<void> _load({bool silent = false}) async {
+    final token = ++_loadToken;
     if (!silent) {
       setState(() {
         _loading = true;
         _error = null;
       });
+      final cached = await _repository.cachedHome(channel: _channel);
+      if (!mounted || token != _loadToken) return;
+      setState(() {
+        _data = cached ?? _repository.localHome(channel: _channel);
+        _loading = false;
+      });
     }
     try {
       final data = await _repository.home(channel: _channel);
-      if (!mounted) return;
+      if (!mounted || token != _loadToken) return;
       setState(() {
         _data = data;
         _loading = false;
@@ -76,10 +84,10 @@ class _BookstorePageState extends State<BookstorePage> {
       });
       if (_carouselController.hasClients) _carouselController.jumpToPage(0);
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || token != _loadToken) return;
       setState(() {
         _loading = false;
-        _error = '书城加载失败，请检查网络后重试';
+        _error = _data == null ? '书城加载失败，请检查网络后重试' : null;
       });
     }
   }

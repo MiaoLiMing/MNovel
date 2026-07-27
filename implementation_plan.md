@@ -1,5 +1,93 @@
 # MNovel 阅读、听书、书源与离线能力完善计划
 
+## 2026-07-27 书城慢加载与阅读/听书卡死修复计划（已完成）
+
+### 目标
+
+- 书城优先显示可用缓存或本地兜底内容，不再因某个远端书源变慢而长时间白屏转圈。
+- 阅读页不再下载、解析和同步排版整本超长文本，弱网或异常大响应也不能拖死 Flutter UI 主线程。
+- 听书复用稳定、有限大小的章节数据，并为系统 TTS 调用增加分段、超时和可恢复错误状态。
+
+### 已验证根因
+
+1. 线上 `GET /api/v1/mnovel/home` 当前一次实测约 `0.75s / 21KB`，但后端冷缓存时会并发等待多个公开书源，现有单源超时为 15 秒，首页没有稳定的“缓存先展示、后台刷新”路径。
+2. `unified_backend` 的 `GutendexSource` 和 `InternetArchiveSource` 把整本 TXT 建模为一个“全文”章节。线上 `gutendex-2701` 首章实测约 `1.25MB`，首字节 `5.75s`、完整响应 `9.38s`。
+3. Flutter 章节请求固定 8 秒超时，因此大正文会在“下载超时”和“下载成功后继续处理超大 JSON”之间不稳定切换。
+4. `ReaderPaginator.paginate()` 在 UI isolate 中对整章反复执行 `substring + TextPainter` 二分测量。把一整本书作为一章会形成长时间同步计算，最终触发 Android ANR。
+5. 听书与阅读共用同一正文加载链路；同时 TTS 当前直接朗读原始段落，没有输入长度上限和单次调用超时，所以超长段落或系统语音服务不回调时无法及时恢复。
+
+### 实施范围与方案
+
+#### A. `unified_backend`：把“整本 TXT”转换为有界章节
+
+1. 为 Gutenberg 与 Internet Archive 全文建立统一的正文规范化和分块器：
+   - 清理版权头尾和无效空白；
+   - 按段落、句末和最大字符数切分；
+   - 单章、单段均设置明确上限，禁止产生超大 JSON 字段；
+   - 返回稳定的章节序号、标题和实际 `unit_count`。
+2. 增加正文/章节缓存与同一图书并发请求合并，避免阅读页、目录和听书重复下载同一本 TXT。
+3. `ChapterContent` 返回实际总章节数；首章加载完成后客户端即可获得完整目录边界。
+4. 首页聚合增加总时间预算和 last-good 缓存：
+   - 单书源失败或超时不阻塞其他来源；
+   - 缓存存在时立即复用，刷新失败继续提供旧缓存；
+   - 不把正文预下载放进首页同步请求。
+5. 增加大文本切章、最大响应尺寸、缓存复用、并发去重、单源超时隔离的后端测试。
+
+#### B. Flutter：缓存优先、动态章节数和超大正文防护
+
+1. 书城首次进入优先展示本地缓存；无缓存时立即展示明确的本地兜底/错误状态，同时后台刷新线上内容。
+2. 防止频道快速切换或重复刷新产生旧请求覆盖新请求；页面离开后不再更新状态。
+3. 章节请求使用独立且合理的超时策略，并对异常大的旧版服务响应做尺寸/字符数防护，转为可重试错误，禁止送入分页器。
+4. `Chapter` 接收服务端实际 `unit_count`；阅读器、目录、进度和听书控制器改用动态章节数，不再把 Gutenberg 永久视为“一章全文”。
+5. 分页器只处理有界章节，并优化断句和测量次数；设置变化、窗口变化和重复加载使用 generation/token 丢弃过期结果。
+6. 阅读页加载时保留可交互框架；超时、正文过大或书源失败时显示“重试/切换书源”，不无限转圈。
+7. 增加书城缓存首屏、过期请求隔离、超大章节拒绝、动态章节数和长文本分页性能回归测试。
+
+#### C. 听书稳定性
+
+1. 将正文拆为 TTS 安全长度的小段，避免把超长字符串直接交给 Android/iOS 语音引擎。
+2. 初始化、开始朗读和停止操作增加超时/代次控制；语音服务不回调时进入可恢复错误状态。
+3. 切章、暂停、退出和重复点击时取消旧播放循环，避免多个异步循环同时推进段落。
+4. 增加超长段落切分、TTS 超时、切章取消和章节加载失败测试。
+
+### 预计修改文件
+
+#### MNovel
+
+- `apps/mobile/lib/domain/content.dart`
+- `apps/mobile/lib/data/content_repository.dart`
+- `apps/mobile/lib/features/bookstore/bookstore_page.dart`
+- `apps/mobile/lib/features/reader/reader_page.dart`
+- `apps/mobile/lib/features/reader/reader_pagination.dart`
+- `apps/mobile/lib/features/audiobook/audiobook_controller.dart`
+- 对应的 Flutter unit/widget tests
+- `task.md`
+- `walkthrough.md`（保留当前未提交内容，只追加本次记录）
+
+#### unified_backend
+
+- `app/api/v1/mnovel/schemas.py`
+- `app/api/v1/mnovel/sources.py`
+- `app/api/v1/mnovel/services.py`
+- 必要时调整 `app/api/v1/mnovel/router.py`
+- `tests/test_mnovel_api.py`
+
+### 验证方法
+
+- Flutter：`flutter analyze`、相关 unit/widget tests、Android debug APK 构建。
+- 后端：MNovel 定向 pytest、Ruff/现有静态检查。
+- 性能回归：
+  - 1MB 以上 Gutenberg/Archive 文本被切成有界章节；
+  - 单章响应大小和段落长度不超过约定上限；
+  - 首次正文加载不触发 UI 长任务，缓存命中不重复访问上游；
+  - 书城有缓存时首屏不等待网络，冷启动失败时也能退出加载态；
+  - TTS 超时、暂停和切章后没有遗留播放循环。
+- 线上契约烟雾测试：`health`、`home`、`detail`、`units`、`chapters/0`，记录响应时间和响应体大小。
+
+### 批准门槛
+
+用户已回复“1”批准方案；客户端、统一后端、回归测试和 Android Debug APK 构建均已完成。
+
 ## 2026-07-25 阅读失败与书源架构修正计划（已完成）
 
 ### 已确认根因

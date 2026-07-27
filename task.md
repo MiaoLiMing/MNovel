@@ -39,3 +39,15 @@
 - 保留 `apps/mobile/pubspec.lock` 当前未提交的镜像地址修改。
 - 兼容现有书架、阅读进度、自定义来源和 `offline.chapter.*` 缓存。
 - 只聚合公开、授权或用户自行配置的来源，不伪造在线可用性。
+
+## 进行中：书城慢加载与阅读/听书卡死修复（2026-07-27）
+
+- [x] 后端将 Gutenberg / Internet Archive 整本 TXT 切为有界章节
+- [x] 后端增加正文缓存、并发请求合并和实际章节数契约
+- [x] 后端首页聚合增加总时间预算和 last-good 缓存
+- [x] Flutter 书城改为缓存优先、后台刷新和过期请求隔离
+- [x] Flutter 阅读器接入动态章节数和超大正文防护
+- [x] Flutter 听书增加安全分段、操作超时和播放代次控制
+- [x] 补充后端、Flutter 单元与 Widget 回归测试
+- [x] 执行 Analyze、Pytest、Flutter Test 和 Android 构建
+- [x] 更新 `walkthrough.md`

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mnovel/data/content_repository.dart';
@@ -20,6 +22,13 @@ class _RefreshRepository extends ContentRepository {
   }
 }
 
+class _DelayedRepository extends ContentRepository {
+  final response = Completer<HomeData>();
+
+  @override
+  Future<HomeData> home({String channel = '推荐'}) => response.future;
+}
+
 void main() {
   testWidgets('书城支持下拉刷新', (tester) async {
     SharedPreferences.setMockInitialValues({});
@@ -38,5 +47,30 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(repository.calls, 2);
+  });
+
+  testWidgets('书城网络未返回时先显示本地内容而不是持续转圈', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = _DelayedRepository();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: BookstorePage(repository: repository)),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('诡秘之主'), findsWidgets);
+
+    repository.response.complete(
+      HomeData(
+        featured: curatedCatalog[1],
+        carousel: curatedCatalog.take(4).toList(),
+        editorsPick: curatedCatalog.skip(2).take(4).toList(),
+        latest: curatedCatalog.reversed.take(4).toList(),
+      ),
+    );
+    await tester.pump();
   });
 }

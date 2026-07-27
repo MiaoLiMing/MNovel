@@ -45,6 +45,7 @@ class _ReaderPageState extends State<ReaderPage> {
     0,
     math.max(0, widget.item.episodeCount - 1),
   );
+  late int _chapterCount = math.max(1, widget.item.episodeCount);
   int _pageIndex = 0;
   int _restoreCharacterOffset = 0;
   ReaderSettings _settings = const ReaderSettings();
@@ -64,7 +65,7 @@ class _ReaderPageState extends State<ReaderPage> {
 
   int get _leadingPageCount => _chapterIndex > 0 ? 1 : 0;
   int get _controllerPage => _leadingPageCount + _pageIndex;
-  bool get _hasNextChapter => _chapterIndex < widget.item.episodeCount - 1;
+  bool get _hasNextChapter => _chapterIndex < _chapterCount - 1;
 
   @override
   void initState() {
@@ -91,10 +92,10 @@ class _ReaderPageState extends State<ReaderPage> {
       _settings = settings;
       _settingsLoaded = true;
       if (shouldRestore) {
-        _chapterIndex = progress.chapterIndex.clamp(
-          0,
-          math.max(0, widget.item.episodeCount - 1),
-        );
+        _chapterIndex = widget.item.isLive && widget.item.episodeCount <= 1
+            ? math.max(0, progress.chapterIndex)
+            : progress.chapterIndex.clamp(0, math.max(0, _chapterCount - 1));
+        _chapterCount = math.max(_chapterCount, _chapterIndex + 1);
         _pageIndex = progress.pageIndex;
         _restoreCharacterOffset = progress.characterOffset;
       }
@@ -136,6 +137,10 @@ class _ReaderPageState extends State<ReaderPage> {
     });
     try {
       final chapter = await _chapterFuture(_chapterIndex);
+      final resolvedChapterCount = math.max(
+        _chapterCount,
+        chapter.totalCount ?? 0,
+      );
       final pages = _paginator.paginate(
         chapter: chapter,
         viewport: viewport,
@@ -158,6 +163,7 @@ class _ReaderPageState extends State<ReaderPage> {
       nextPage = nextPage.clamp(0, math.max(0, pages.length - 1));
       setState(() {
         _chapter = chapter;
+        _chapterCount = math.max(1, resolvedChapterCount);
         _pages = pages;
         _pageIndex = nextPage;
         _restoreCharacterOffset = 0;
@@ -241,9 +247,7 @@ class _ReaderPageState extends State<ReaderPage> {
   }
 
   Future<void> _switchChapter(int index, {bool targetLastPage = false}) async {
-    final target = index
-        .clamp(0, math.max(0, widget.item.episodeCount - 1))
-        .toInt();
+    final target = index.clamp(0, math.max(0, _chapterCount - 1)).toInt();
     if (_switchingChapter || target == _chapterIndex) {
       if (_pageController.hasClients) {
         _pageController.jumpToPage(_controllerPage);
@@ -356,9 +360,9 @@ class _ReaderPageState extends State<ReaderPage> {
     final chapterFraction = _pages.isEmpty
         ? 0.0
         : (_pageIndex + 1) / _pages.length;
-    final ratio = widget.item.episodeCount <= 0
+    final ratio = _chapterCount <= 0
         ? 0.0
-        : ((_chapterIndex + chapterFraction) / widget.item.episodeCount)
+        : ((_chapterIndex + chapterFraction) / _chapterCount)
               .clamp(0, 1)
               .toDouble();
     await _progressStore.save(
@@ -381,7 +385,7 @@ class _ReaderPageState extends State<ReaderPage> {
     final selected = await Navigator.of(context).push<int>(
       MaterialPageRoute<int>(
         builder: (_) => ChapterCatalogPage(
-          item: widget.item,
+          item: widget.item.copyWith(episodeCount: _chapterCount),
           selectedSource: _selectedSource,
           repository: _repository,
         ),
@@ -395,6 +399,7 @@ class _ReaderPageState extends State<ReaderPage> {
       MaterialPageRoute<void>(
         builder: (_) => AudiobookPage(
           item: widget.item.copyWith(
+            episodeCount: _chapterCount,
             sourceId: _selectedSource,
             sourceName: _selectedSource,
           ),
@@ -758,9 +763,9 @@ class _ReaderPageState extends State<ReaderPage> {
     }
     final background = _settings.palette.background;
     final foreground = _settings.palette.foreground;
-    final chapterProgress = widget.item.episodeCount <= 0
+    final chapterProgress = _chapterCount <= 0
         ? 0.0
-        : (_chapterIndex + 1) / widget.item.episodeCount;
+        : (_chapterIndex + 1) / _chapterCount;
     return Scaffold(
       backgroundColor: background,
       body: AnnotatedRegion<SystemUiOverlayStyle>(
@@ -832,12 +837,12 @@ class _ReaderPageState extends State<ReaderPage> {
                       child: _ReaderBottomBar(
                         progress: chapterProgress,
                         chapterIndex: _chapterIndex,
-                        total: widget.item.episodeCount,
+                        total: _chapterCount,
                         pageIndex: _pageIndex,
                         pageCount: _pages.length,
                         night: _settings.palette == ReaderPalette.night,
                         onProgressChanged: (value) => _switchChapter(
-                          (value * (widget.item.episodeCount - 1)).round(),
+                          (value * (_chapterCount - 1)).round(),
                         ),
                         onPrevious: _chapterIndex == 0
                             ? null

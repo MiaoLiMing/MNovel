@@ -39,6 +39,7 @@ class _AudiobookPageState extends State<AudiobookPage> {
 
   @override
   void dispose() {
+    _controller.cancelPendingInitialization();
     _controller.removeListener(_refresh);
     super.dispose();
   }
@@ -51,7 +52,7 @@ class _AudiobookPageState extends State<AudiobookPage> {
     final selected = await Navigator.of(context).push<int>(
       MaterialPageRoute<int>(
         builder: (_) => ChapterCatalogPage(
-          item: widget.item,
+          item: _controller.item ?? widget.item,
           selectedSource: widget.item.sourceName,
           repository: widget.repository,
         ),
@@ -60,7 +61,7 @@ class _AudiobookPageState extends State<AudiobookPage> {
     if (selected == null) return;
     await _controller.stop();
     await _controller.open(
-      item: widget.item,
+      item: _controller.item ?? widget.item,
       initialChapterIndex: selected,
       repository: widget.repository,
     );

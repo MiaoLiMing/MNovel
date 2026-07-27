@@ -168,4 +168,69 @@ void main() {
 
     expect(item.hasPlayableMedia, isTrue);
   });
+
+  test('章节响应会读取服务端返回的实际总章数', () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = ContentRepository(
+      sourceStore: _MockSourceStore(const []),
+      client: MockClient(
+        (_) async => http.Response.bytes(
+          utf8.encode(
+            '{"index":0,"title":"第一节","paragraphs":["正文"],'
+            '"source_id":"project-gutenberg","unit_count":7}',
+          ),
+          200,
+        ),
+      ),
+    );
+    final item = ContentItem.fromJson({
+      'id': 'gutendex-7',
+      'title': '测试作品',
+      'creator': '作者',
+      'category': '公共领域',
+      'summary': '',
+      'cover': '',
+      'unit_count': 1,
+      'source_id': 'project-gutenberg',
+      'source_name': 'Project Gutenberg',
+      'is_live': true,
+    });
+
+    final chapter = await repository.chapter(item, 0, preferOffline: false);
+
+    expect(chapter.totalCount, 7);
+  });
+
+  test('异常大的旧版单章响应会在排版前被拒绝', () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = ContentRepository(
+      sourceStore: _MockSourceStore(const []),
+      client: MockClient(
+        (_) async => http.Response.bytes(List<int>.filled(600 * 1024, 32), 200),
+      ),
+    );
+    final item = ContentItem.fromJson({
+      'id': 'gutendex-large',
+      'title': '超大作品',
+      'creator': '作者',
+      'category': '公共领域',
+      'summary': '',
+      'cover': '',
+      'unit_count': 1,
+      'source_id': 'project-gutenberg',
+      'source_name': 'Project Gutenberg',
+      'is_live': true,
+    });
+
+    expect(
+      () => repository.chapter(item, 0, preferOffline: false),
+      throwsA(
+        isA<ContentRepositoryException>().having(
+          (error) => error.message,
+          'message',
+          contains('单章正文过大'),
+        ),
+      ),
+    );
+  });
 }

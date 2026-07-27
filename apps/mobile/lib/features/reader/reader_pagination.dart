@@ -30,6 +30,8 @@ class ReaderPageContent {
 class ReaderPaginator {
   const ReaderPaginator();
 
+  static const maxInputCharacters = 120000;
+
   List<ReaderPageContent> paginate({
     required Chapter chapter,
     required Size viewport,
@@ -49,6 +51,9 @@ class ReaderPaginator {
         )
         .where((paragraph) => paragraph.isNotEmpty)
         .join('\n\n');
+    if (body.length > maxInputCharacters) {
+      throw StateError('单章正文超过安全排版上限');
+    }
     if (body.isEmpty) {
       return [
         ReaderPageContent(

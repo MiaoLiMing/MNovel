@@ -82,6 +82,10 @@ class SourceProbeResult {
 }
 
 class ContentRepository {
+  static const _chapterTimeout = Duration(seconds: 20);
+  static const _maxChapterResponseBytes = 512 * 1024;
+  static const _maxChapterCharacters = 120000;
+
   ContentRepository({
     http.Client? client,
     SourceStore? sourceStore,
@@ -96,6 +100,20 @@ class ContentRepository {
   int _homeRefreshSeed = 0;
   int _lastSourceCount = 0;
   int _lastFailedSourceCount = 0;
+
+  Future<HomeData?> cachedHome({String channel = '推荐'}) async {
+    final items = await _readHomeCache(channel);
+    if (items.isEmpty) return null;
+    return _composeHome(
+      items,
+      fromCache: true,
+      sourceCount: _lastSourceCount,
+      failedSourceCount: _lastFailedSourceCount,
+    );
+  }
+
+  HomeData localHome({String channel = '推荐'}) =>
+      _composeHome(_channelFallback(channel));
 
   Future<HomeData> home({String channel = '推荐'}) async {
     final collected = <ContentItem>[];
@@ -142,7 +160,6 @@ class ContentRepository {
     var fromCache = false;
     if (sourceItems.isNotEmpty) {
       reachedNetwork = true;
-      await _writeHomeCache(channel, sourceItems);
     } else {
       sourceItems = await _readHomeCache(channel);
       fromCache = sourceItems.isNotEmpty;
@@ -150,6 +167,25 @@ class ContentRepository {
     }
     final merged = _mergeItems([...sourceItems, ...collected]);
     final items = merged.isEmpty ? _channelFallback(channel) : merged;
+    if (reachedNetwork && merged.isNotEmpty) {
+      await _writeHomeCache(channel, merged);
+    }
+    return _composeHome(
+      items,
+      fromNetwork: reachedNetwork,
+      fromCache: fromCache,
+      sourceCount: _lastSourceCount,
+      failedSourceCount: _lastFailedSourceCount,
+    );
+  }
+
+  HomeData _composeHome(
+    List<ContentItem> items, {
+    bool fromNetwork = false,
+    bool fromCache = false,
+    int sourceCount = 0,
+    int failedSourceCount = 0,
+  }) {
     final rotated = items.length <= 1
         ? items
         : [
@@ -161,10 +197,10 @@ class ContentRepository {
       carousel: rotated.take(6).toList(growable: false),
       editorsPick: rotated.skip(2).take(8).toList(growable: false),
       latest: rotated.reversed.take(10).toList(growable: false),
-      fromNetwork: reachedNetwork,
+      fromNetwork: fromNetwork,
       fromCache: fromCache,
-      sourceCount: _lastSourceCount,
-      failedSourceCount: _lastFailedSourceCount,
+      sourceCount: sourceCount,
+      failedSourceCount: failedSourceCount,
     );
   }
 
@@ -400,7 +436,7 @@ class ContentRepository {
       final data = await _getList('/content/${item.id}/units', {
         'offset': '$offset',
         'limit': '$limit',
-      });
+      }, _chapterTimeout);
       return data
           .map((value) => ChapterEntry.fromJson(value))
           .toList(growable: false);
@@ -448,10 +484,11 @@ class ContentRepository {
     }
 
     try {
-      final data = await _getObject('/content/${item.id}/chapters/$index', {
-        'source_id': item.sourceId,
-      });
-      return Chapter.fromJson(data);
+      final data = await _getChapterObject(
+        '/content/${item.id}/chapters/$index',
+        {'source_id': item.sourceId},
+      );
+      return _validateChapter(Chapter.fromJson(data));
     } catch (error) {
       if (item.isLive || index > 0) {
         throw ContentRepositoryException(_networkErrorMessage(error));
@@ -513,16 +550,44 @@ class ContentRepository {
   Future<List<Map<String, dynamic>>> _getList(
     String path, [
     Map<String, String>? query,
+    Duration timeout = const Duration(seconds: 8),
   ]) async {
-    final response = await _client
-        .get(_uri(path, query))
-        .timeout(const Duration(seconds: 8));
+    final response = await _client.get(_uri(path, query)).timeout(timeout);
     if (response.statusCode != 200) {
       throw ContentRepositoryException('服务暂不可用（${response.statusCode}）');
     }
     return (jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>)
         .map((value) => Map<String, dynamic>.from(value as Map))
         .toList(growable: false);
+  }
+
+  Future<Map<String, dynamic>> _getChapterObject(
+    String path,
+    Map<String, String> query,
+  ) async {
+    final response = await _client
+        .get(_uri(path, query))
+        .timeout(_chapterTimeout);
+    if (response.statusCode != 200) {
+      throw ContentRepositoryException('服务暂不可用（${response.statusCode}）');
+    }
+    if (response.bodyBytes.length > _maxChapterResponseBytes) {
+      throw const ContentRepositoryException('书源返回的单章正文过大，已停止处理以避免应用卡死');
+    }
+    return Map<String, dynamic>.from(
+      jsonDecode(utf8.decode(response.bodyBytes)) as Map,
+    );
+  }
+
+  Chapter _validateChapter(Chapter chapter) {
+    var characters = 0;
+    for (final paragraph in chapter.paragraphs) {
+      characters += paragraph.length;
+      if (characters > _maxChapterCharacters) {
+        throw const ContentRepositoryException('书源返回的单章正文过大，已停止排版以避免应用卡死');
+      }
+    }
+    return chapter;
   }
 
   Uri _uri(String path, [Map<String, String>? query]) {
@@ -1066,6 +1131,9 @@ class ContentRepository {
           .get(Uri.parse(item.chapterUrls![index]))
           .timeout(const Duration(seconds: 15));
       if (response.statusCode != 200) return null;
+      if (response.bodyBytes.length > _maxChapterResponseBytes) {
+        throw const ContentRepositoryException('直连书源返回的是整本超大文本，请改用后端分章书源');
+      }
       var text = utf8.decode(response.bodyBytes);
       final trimmed = text.trimLeft();
       if (trimmed.startsWith('{')) {
@@ -1099,15 +1167,20 @@ class ContentRepository {
             .replaceAll('&nbsp;', ' ')
             .replaceAll('&amp;', '&');
       }
-      return Chapter(
-        index: index,
-        title: '第 ${index + 1} 章',
-        paragraphs: text
-            .split('\n')
-            .map((line) => line.trim())
-            .where((line) => line.isNotEmpty)
-            .toList(growable: false),
+      return _validateChapter(
+        Chapter(
+          index: index,
+          title: '第 ${index + 1} 章',
+          totalCount: item.episodeCount,
+          paragraphs: text
+              .split('\n')
+              .map((line) => line.trim())
+              .where((line) => line.isNotEmpty)
+              .toList(growable: false),
+        ),
       );
+    } on ContentRepositoryException {
+      rethrow;
     } catch (_) {
       return null;
     }

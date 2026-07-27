@@ -9,6 +9,27 @@ import '../../domain/content.dart';
 
 enum AudiobookPlaybackState { idle, loading, playing, paused, completed, error }
 
+List<String> splitTtsSegments(String text, {int maxLength = 120}) {
+  final remainingParts = <String>[];
+  var remaining = text.trim();
+  const breakCharacters = '。！？；.!?;\n';
+  while (remaining.length > maxLength) {
+    final minimum = (maxLength * .55).floor();
+    var end = 0;
+    for (var index = maxLength; index >= minimum; index--) {
+      if (breakCharacters.contains(remaining[index - 1])) {
+        end = index;
+        break;
+      }
+    }
+    if (end == 0) end = maxLength;
+    remainingParts.add(remaining.substring(0, end).trim());
+    remaining = remaining.substring(end).trim();
+  }
+  if (remaining.isNotEmpty) remainingParts.add(remaining);
+  return remainingParts.where((value) => value.isNotEmpty).toList();
+}
+
 class AudiobookController extends ChangeNotifier {
   AudiobookController._();
 
@@ -30,6 +51,8 @@ class AudiobookController extends ChangeNotifier {
   DateTime? sleepEndsAt;
   bool stopAtChapterEnd = false;
   Timer? _sleepTimer;
+  Timer? _initializationTimer;
+  void Function()? _cancelInitializationWait;
   int _generation = 0;
   bool _initialized = false;
 
@@ -80,10 +103,10 @@ class AudiobookController extends ChangeNotifier {
     volume = prefs.getDouble('audiobook.volume') ?? 1;
     voiceName = prefs.getString('audiobook.voice');
     try {
-      await _tts.awaitSpeakCompletion(true);
-      await _tts.setLanguage('zh-CN');
-      await _applySettings();
-      final rawVoices = await _tts.getVoices;
+      await _awaitInitialization(_tts.awaitSpeakCompletion(true));
+      await _awaitInitialization(_tts.setLanguage('zh-CN'));
+      await _awaitInitialization(_applySettings());
+      final rawVoices = await _awaitInitialization(_tts.getVoices);
       voices = (rawVoices as List<dynamic>? ?? const [])
           .whereType<Map>()
           .map((voice) => Map<String, dynamic>.from(voice))
@@ -93,8 +116,48 @@ class AudiobookController extends ChangeNotifier {
           })
           .toList(growable: false);
     } catch (_) {
+      _initialized = false;
       voices = const [];
     }
+  }
+
+  Future<T> _awaitInitialization<T>(Future<T> operation) {
+    final completer = Completer<T>();
+    final timer = Timer(const Duration(seconds: 5), () {
+      if (!completer.isCompleted) {
+        completer.completeError(TimeoutException('系统语音服务初始化超时'));
+      }
+    });
+    _initializationTimer = timer;
+    _cancelInitializationWait = () {
+      if (!completer.isCompleted) {
+        completer.completeError(StateError('听书页面已关闭'));
+      }
+    };
+    operation.then(
+      (value) {
+        if (!completer.isCompleted) completer.complete(value);
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (!completer.isCompleted) {
+          completer.completeError(error, stackTrace);
+        }
+      },
+    );
+    return completer.future.whenComplete(() {
+      timer.cancel();
+      if (identical(_initializationTimer, timer)) {
+        _initializationTimer = null;
+        _cancelInitializationWait = null;
+      }
+    });
+  }
+
+  void cancelPendingInitialization() {
+    _initializationTimer?.cancel();
+    _cancelInitializationWait?.call();
+    _initializationTimer = null;
+    _cancelInitializationWait = null;
   }
 
   Future<void> _loadChapter(int index) async {
@@ -106,6 +169,10 @@ class AudiobookController extends ChangeNotifier {
     notifyListeners();
     try {
       chapter = await repository.chapter(content, index);
+      final totalCount = chapter?.totalCount;
+      if (totalCount != null && totalCount > 0) {
+        item = content.copyWith(episodeCount: totalCount);
+      }
       chapterIndex = index;
       paragraphIndex = 0;
       state = AudiobookPlaybackState.paused;
@@ -125,19 +192,23 @@ class AudiobookController extends ChangeNotifier {
     errorMessage = null;
     notifyListeners();
     try {
-      await _applySettings();
+      await _applySettings().timeout(const Duration(seconds: 5));
       while (generation == _generation &&
           state == AudiobookPlaybackState.playing) {
         final active = chapter;
         if (active == null || active.paragraphs.isEmpty) break;
         final text = active
             .paragraphs[paragraphIndex.clamp(0, active.paragraphs.length - 1)];
-        final result = await _tts.speak(text, focus: true);
-        if (generation != _generation ||
-            state != AudiobookPlaybackState.playing) {
-          return;
+        for (final segment in splitTtsSegments(text)) {
+          final result = await _tts
+              .speak(segment, focus: true)
+              .timeout(const Duration(seconds: 60));
+          if (generation != _generation ||
+              state != AudiobookPlaybackState.playing) {
+            return;
+          }
+          if (result != 1) throw StateError('系统语音服务未能开始播放');
         }
-        if (result != 1) throw StateError('系统语音服务未能开始播放');
         if (paragraphIndex < active.paragraphs.length - 1) {
           paragraphIndex++;
           notifyListeners();
@@ -156,6 +227,9 @@ class AudiobookController extends ChangeNotifier {
       }
     } catch (error) {
       if (generation != _generation) return;
+      try {
+        await _tts.stop().timeout(const Duration(seconds: 5));
+      } catch (_) {}
       state = AudiobookPlaybackState.error;
       errorMessage = '系统朗读失败。请确认设备已安装中文语音：$error';
       notifyListeners();
@@ -165,9 +239,11 @@ class AudiobookController extends ChangeNotifier {
   Future<void> pause() async {
     _generation++;
     try {
-      await _tts.pause();
+      await _tts.pause().timeout(const Duration(seconds: 5));
     } catch (_) {
-      await _tts.stop();
+      try {
+        await _tts.stop().timeout(const Duration(seconds: 5));
+      } catch (_) {}
     }
     state = AudiobookPlaybackState.paused;
     notifyListeners();
@@ -175,7 +251,9 @@ class AudiobookController extends ChangeNotifier {
 
   Future<void> stop() async {
     _generation++;
-    await _tts.stop();
+    try {
+      await _tts.stop().timeout(const Duration(seconds: 5));
+    } catch (_) {}
     state = AudiobookPlaybackState.idle;
     notifyListeners();
   }
@@ -183,7 +261,9 @@ class AudiobookController extends ChangeNotifier {
   Future<void> previousChapter() async {
     final resume = isPlaying;
     _generation++;
-    await _tts.stop();
+    try {
+      await _tts.stop().timeout(const Duration(seconds: 5));
+    } catch (_) {}
     if (paragraphIndex > 0) {
       paragraphIndex = 0;
       state = AudiobookPlaybackState.paused;
@@ -200,7 +280,9 @@ class AudiobookController extends ChangeNotifier {
     if (!canGoNext) return;
     final resume = isPlaying;
     _generation++;
-    await _tts.stop();
+    try {
+      await _tts.stop().timeout(const Duration(seconds: 5));
+    } catch (_) {}
     await _loadChapter(chapterIndex + 1);
     if (resume && state != AudiobookPlaybackState.error) await play();
   }
@@ -210,7 +292,9 @@ class AudiobookController extends ChangeNotifier {
     if (count == 0) return;
     final resume = isPlaying;
     _generation++;
-    await _tts.stop();
+    try {
+      await _tts.stop().timeout(const Duration(seconds: 5));
+    } catch (_) {}
     paragraphIndex = (value.clamp(0, 1) * (count - 1)).round();
     state = AudiobookPlaybackState.paused;
     notifyListeners();

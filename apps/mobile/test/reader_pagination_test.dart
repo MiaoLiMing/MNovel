@@ -53,4 +53,20 @@ void main() {
 
     expect(large.length, greaterThanOrEqualTo(normal.length));
   });
+
+  test('拒绝对异常大的单章正文执行同步排版', () {
+    final chapter = Chapter(
+      title: '异常大章节',
+      paragraphs: ['字' * (ReaderPaginator.maxInputCharacters + 1)],
+    );
+
+    expect(
+      () => const ReaderPaginator().paginate(
+        chapter: chapter,
+        viewport: const Size(390, 700),
+        settings: const ReaderSettings(),
+      ),
+      throwsStateError,
+    );
+  });
 }

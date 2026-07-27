@@ -1,6 +1,6 @@
 # MNovel 阅读、听书、书源与离线能力交付说明
 
-## 交付结论
+## 交付 结论
 
 本轮五项需求均已落地。阅读器现在以章内页面为翻页单位，读完当前章最后一页才进入下一章第一页；四种翻页模式具有独立行为；听书、离线下载和离线书库已形成完整链路；书城不再只依赖固定的 8 本静态目录，而是聚合公开书源和用户配置书源。
 
@@ -118,3 +118,50 @@ www.flowercat.art TLS         verify_result=0, /health=200
 生产域名当前 `/api/v1/mnovel/home` 仍返回 404，说明服务器尚未部署本次
 `unified_backend` 代码。App 在部署前会使用设备端公开来源适配器降级，不会再因
 证书错误进入不可恢复页面；部署后会自动改用统一后端作为主解析入口。
+
+## 2026-07-27 书城慢加载与阅读/听书卡死修复
+
+### 根因与修复结果
+
+- 线上实测 Gutenberg 正文曾以一个约 `1.25MB` 的“全文章节”返回，首字节约
+  `5.75s`、完整响应约 `9.38s`；Flutter 章节请求只有 8 秒超时，成功返回后又在
+  UI isolate 同步排版整本书，因此会在超时、持续转圈和 Android ANR 之间波动。
+- `unified_backend` 现在把 Gutenberg 与 Internet Archive 的整本 TXT 按段落和
+  句末切成约 24K 字符的有界章节，单段最多 1600 字符；章节响应新增
+  `unit_count`，客户端加载首章后即可获得真实总章数。
+- 后端正文只下载和切分一次；同一本书的并发请求会合并。正文缓存使用约 2400 万
+  字符的总预算，避免无上限占用服务器内存。
+- 后端首页对每个公开书源设置 5 秒预算，并保留单源 last-good 缓存；一个来源变慢
+  不再拖住全部来源。
+- Flutter 书城先显示 7 天内目录缓存，无缓存时立即显示本地试读内容，再在后台刷新；
+  每次加载带请求代次，频道快速切换时旧响应不能覆盖新页面。
+- Flutter 章节请求改用 20 秒正文超时，并在 JSON 解析/分页前拒绝超过 512KB 或
+  12 万字符的异常单章，旧后端也不能再把 UI 主线程拖死。
+- 阅读器使用服务端动态总章数，并保留公共书源的跨会话章节进度；目录、进度条和
+  听书入口会同步使用更新后的章节数。
+- TTS 原始段落会进一步切成最多 120 字的小段；初始化、播放、暂停和停止均有超时
+  与播放代次保护，页面关闭时会取消未完成的初始化等待。
+
+### 验证结果
+
+```text
+unified_backend: python -m pytest -q       41 passed
+unified_backend: MNovel Ruff              All checks passed
+apps/mobile: flutter analyze              No issues found
+apps/mobile: flutter test                 30 passed
+apps/mobile: flutter build apk --debug    Built app-debug.apk
+```
+
+新增回归覆盖大文本分章、并发下载合并、实际总章数、超大旧响应拦截、分页安全上限、
+书城网络未返回时的缓存/本地首屏，以及 TTS 安全分段。Android Debug APK 位于：
+
+`apps/mobile/build/app/outputs/flutter-apk/app-debug.apk`
+
+### 发布说明
+
+- 当前生产服务器仍运行旧正文契约；必须部署本次 `unified_backend` 改动，线上阅读
+  才会从“拦截超大响应并提示重试”升级为“正常读取有界章节”。
+- 本次未执行生产部署，也未覆盖 `unified_backend/README.md` 和本文件原有的用户
+  未提交修改。
+- Android 构建仍提示 `flutter_tts` 旧式 Kotlin Gradle Plugin 的未来兼容警告，
+  不影响当前 Debug APK 构建和运行。
