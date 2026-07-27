@@ -1,6 +1,6 @@
 # MNovel
 
-私人使用、无广告的 Flutter 内容聚合 App。
+私人使用、无广告的 Flutter 内容聚合App。
 
 ## 当前架构
 

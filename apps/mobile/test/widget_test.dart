@@ -51,9 +51,8 @@ void main() {
     await tester.tap(find.text('书源管理'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Project Gutenberg'), findsOneWidget);
-    expect(find.text('中文维基文库'), findsOneWidget);
-    expect(find.text('Internet Archive 中文馆藏'), findsOneWidget);
+    expect(find.text('书趣阁（授权私用）'), findsOneWidget);
+    expect(find.text('笔趣阁 b520（授权私用）'), findsOneWidget);
     expect(find.text('起点中文网'), findsNothing);
     expect(find.text('添加书源'), findsOneWidget);
   });

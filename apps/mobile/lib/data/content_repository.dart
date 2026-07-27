@@ -1268,9 +1268,8 @@ const _fallbackTaxonomy = <FilterGroup>[
     label: '来源',
     options: [
       FilterOption(value: '全部', label: '全部'),
-      FilterOption(value: 'Project Gutenberg', label: 'Gutenberg'),
-      FilterOption(value: '中文维基文库', label: '中文维基文库'),
-      FilterOption(value: 'Internet Archive 中文馆藏', label: '中文公开馆藏'),
+      FilterOption(value: '书趣阁（授权私用）', label: '书趣阁'),
+      FilterOption(value: '笔趣阁 b520（授权私用）', label: 'b520'),
       FilterOption(value: '内置试读', label: '内置试读'),
       FilterOption(value: '自定义书源', label: '自定义'),
     ],

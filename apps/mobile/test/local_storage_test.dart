@@ -6,7 +6,7 @@ import 'package:mnovel/domain/content_source.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  test('内置列表只保留三个可用公共书源', () async {
+  test('内置列表只保留两个授权私用书源', () async {
     SharedPreferences.setMockInitialValues({
       'content.sources.enabled.v1':
           '{"qidian":true,"fanqie":true,"custom-example":true}',
@@ -16,13 +16,9 @@ void main() {
 
     expect(
       builtIns.map((source) => source.id),
-      containsAllInOrder([
-        'project-gutenberg',
-        'zh-wikisource',
-        'internet-archive-chinese',
-      ]),
+      containsAllInOrder(['xshuquge-authorized', 'b520-authorized']),
     );
-    expect(builtIns, hasLength(3));
+    expect(builtIns, hasLength(2));
     expect(
       builtIns.where(
         (source) => source.health == SourceHealth.configurationRequired,

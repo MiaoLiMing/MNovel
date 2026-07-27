@@ -51,3 +51,15 @@
 - [x] 补充后端、Flutter 单元与 Widget 回归测试
 - [x] 执行 Analyze、Pytest、Flutter Test 和 Android 构建
 - [x] 更新 `walkthrough.md`
+
+## 已完成：授权私用站点内置源替换（2026-07-27）
+
+- [x] Flutter 内置源替换为 b520.cc 与 xshuquge.net
+- [x] unified_backend 默认聚合源替换为两个授权站点
+- [x] 实现首页、搜索、详情、目录、正文和健康检查适配器
+- [x] 增加专用 User-Agent、单域限速、超时、缓存与结构断言
+- [x] 禁用旧内置源种子并保留自定义源、离线书籍和已有持久化内容
+- [x] 为 b520.cc 当前无有效章节链接提供透明降级状态
+- [x] 补充最小 HTML 夹具与目录顺序、正文清洗、结构异常测试
+- [x] 执行后端测试/Ruff、Flutter Analyze/Test；APK 构建已执行但受机器内存不足阻塞
+- [x] 更新 `implementation_plan.md` 与 `walkthrough.md`

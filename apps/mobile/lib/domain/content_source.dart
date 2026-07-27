@@ -2,6 +2,7 @@ import 'content.dart';
 
 enum SourceKind {
   localCatalog,
+  backendHtml,
   gutendex,
   wikisource,
   internetArchive,
@@ -123,33 +124,23 @@ class ContentSource {
 
 const builtInContentSources = <ContentSource>[
   ContentSource(
-    id: 'project-gutenberg',
-    name: 'Project Gutenberg',
-    description: '7 万余本公共领域电子书 · 可搜索和离线阅读',
+    id: 'xshuquge-authorized',
+    name: '书趣阁（授权私用）',
+    description: '后端在线解析 · 限速与短时缓存 · 仅授权私用测试',
     channels: {ContentChannel.novel},
-    kind: SourceKind.gutendex,
-    endpoint: 'https://gutendex.com/books/',
+    kind: SourceKind.backendHtml,
+    endpoint: 'http://www.xshuquge.net/',
     builtIn: true,
     priority: 120,
   ),
   ContentSource(
-    id: 'zh-wikisource',
-    name: '中文维基文库',
-    description: '中文公共领域作品 · 支持全文搜索与离线阅读',
+    id: 'b520-authorized',
+    name: '笔趣阁 b520（授权私用）',
+    description: '后端在线解析 · 章节链路异常时显示明确错误',
     channels: {ContentChannel.novel},
-    kind: SourceKind.wikisource,
-    endpoint: 'https://zh.wikisource.org/w/api.php',
+    kind: SourceKind.backendHtml,
+    endpoint: 'https://www.b520.cc/',
     builtIn: true,
     priority: 115,
-  ),
-  ContentSource(
-    id: 'internet-archive-chinese',
-    name: 'Internet Archive 中文馆藏',
-    description: '公开数字馆藏 · 优先筛选带可检索全文的中文书籍',
-    channels: {ContentChannel.novel},
-    kind: SourceKind.internetArchive,
-    endpoint: 'https://archive.org/advancedsearch.php',
-    builtIn: true,
-    priority: 110,
   ),
 ];

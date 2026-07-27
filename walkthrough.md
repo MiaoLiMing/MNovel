@@ -165,3 +165,42 @@ apps/mobile: flutter build apk --debug    Built app-debug.apk
   未提交修改。
 - Android 构建仍提示 `flutter_tts` 旧式 Kotlin Gradle Plugin 的未来兼容警告，
   不影响当前 Debug APK 构建和运行。
+
+## 2026-07-27 授权私用站点内置源替换
+
+### 交付结果
+
+- Flutter 默认书源已替换为“书趣阁（授权私用）”和“笔趣阁 b520（授权私用）”；
+  原 Project Gutenberg、中文维基文库和 Internet Archive 不再出现在默认源列表及
+  来源筛选项。用户自定义源和设备离线书籍不受影响。
+- `unified_backend` 默认聚合器、数据库种子同步替换。数据库中已存在的旧内置源只会
+  被设为停用，不硬删除其历史小说和章节记录。
+- 采用后端在线解析，不把站点规则放进 App，也不整站下载入库。上游请求使用
+  `MNovelPrivateTest/1.0` 专用标识、单源串行 350ms 间隔、5 秒聚合预算、15 分钟
+  目录缓存和 30 分钟正文缓存。
+- `xshuquge.net` 的 HTTP 连接只发生在后端，App 仍连接统一 HTTPS API。已实现首页、
+  POST 搜索、详情、目录和正文清洗，并修正“最新章节倒序区 + 正文正序区”导致的
+  章节错序。
+- `b520.cc` 首页目录可解析，但实站详情页章节链接当前全部是 `/`。适配器会主动抛出
+  “当前未提供可解析的章节链接”，源健康状态显示异常，不再让阅读或听书持续转圈。
+
+### 实站与自动化验证
+
+```text
+xshuquge.net 首页目录        30 条（单页上限）
+xshuquge.net 实测样本目录    1838 章，第一章 → 第一千八百三十七章
+xshuquge.net 首章正文        120 个清洗后段落
+xshuquge.net 中文搜索        万相之王 / 斗破苍穹 / 剑来均返回结果
+b520.cc 首页目录             30 条（单页上限）
+b520.cc 健康检查             明确报告章节链接不可解析
+unified_backend Ruff         All checks passed
+unified_backend Pytest       9 passed
+Flutter Analyze             No issues found
+Flutter Test                30 passed
+```
+
+Android Debug APK 构建已尝试两次，但当前机器仅约 1.8GB 可用物理内存，
+`kernel_snapshot_program` 均触发 Out of memory；这是构建环境资源不足，不是编译
+错误。代码分析和全部 Flutter 测试已通过，释放内存后可重新执行：
+
+`flutter build apk --debug`

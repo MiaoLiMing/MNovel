@@ -67,6 +67,20 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
       return;
     }
     final (format, catalog, chapter, policy) = switch (source.kind) {
+      SourceKind.backendHtml =>
+        source.id == 'b520-authorized'
+            ? (
+                '后端 HTML 在线解析',
+                '读取授权站点首页与详情目录',
+                '当前上游章节链接异常时主动停止并显示错误',
+                'App 不直连站点；后端使用专用标识、限速和短时缓存',
+              )
+            : (
+                '后端 HTML 在线解析',
+                '支持首页目录与站内关键词搜索',
+                '按需获取目录和章节正文，正文短时缓存',
+                'HTTP 上游仅由后端访问；App 始终连接统一 HTTPS API',
+              ),
       SourceKind.gutendex => (
         'Gutendex REST JSON + Gutenberg TXT',
         '支持分页搜索公共领域电子书',
