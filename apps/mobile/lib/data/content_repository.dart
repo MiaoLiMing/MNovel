@@ -33,7 +33,7 @@ class HomeData {
     this.failedSourceCount = 0,
   });
 
-  final ContentItem featured;
+  final ContentItem? featured;
   final List<ContentItem> carousel;
   final List<ContentItem> editorsPick;
   final List<ContentItem> latest;
@@ -41,6 +41,12 @@ class HomeData {
   final bool fromCache;
   final int sourceCount;
   final int failedSourceCount;
+
+  bool get isEmpty =>
+      featured == null &&
+      carousel.isEmpty &&
+      editorsPick.isEmpty &&
+      latest.isEmpty;
 }
 
 class FilterOption {
@@ -153,27 +159,20 @@ class ContentRepository {
       reachedNetwork = reachedBackend;
     } catch (_) {}
 
-    var sourceItems = await _loadEnabledSourceCatalog(
+    final sourceItems = await _loadEnabledSourceCatalog(
       page: refreshPage,
       includePublicFallback: !reachedBackend,
     );
-    var fromCache = false;
     if (sourceItems.isNotEmpty) {
       reachedNetwork = true;
-    } else {
-      sourceItems = await _readHomeCache(channel);
-      fromCache = sourceItems.isNotEmpty;
-      reachedNetwork = collected.any((item) => item.isLive);
     }
     final merged = _mergeItems([...sourceItems, ...collected]);
-    final items = merged.isEmpty ? _channelFallback(channel) : merged;
     if (reachedNetwork && merged.isNotEmpty) {
       await _writeHomeCache(channel, merged);
     }
     return _composeHome(
-      items,
+      merged,
       fromNetwork: reachedNetwork,
-      fromCache: fromCache,
       sourceCount: _lastSourceCount,
       failedSourceCount: _lastFailedSourceCount,
     );
@@ -186,6 +185,18 @@ class ContentRepository {
     int sourceCount = 0,
     int failedSourceCount = 0,
   }) {
+    if (items.isEmpty) {
+      return HomeData(
+        featured: null,
+        carousel: const [],
+        editorsPick: const [],
+        latest: const [],
+        fromNetwork: fromNetwork,
+        fromCache: fromCache,
+        sourceCount: sourceCount,
+        failedSourceCount: failedSourceCount,
+      );
+    }
     final rotated = items.length <= 1
         ? items
         : [
@@ -309,8 +320,28 @@ class ContentRepository {
 
     final stopwatch = Stopwatch()..start();
     try {
-      final data = await _getObject('/sources/${source.id}/health');
+      final response = await _client
+          .get(_uri('/sources/${source.id}/health'))
+          .timeout(const Duration(seconds: 8));
       stopwatch.stop();
+      Map<String, dynamic> data = const {};
+      try {
+        data = Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(response.bodyBytes)) as Map,
+        );
+      } catch (_) {}
+      if (response.statusCode != 200) {
+        final detail = data['detail']?.toString().trim();
+        return SourceProbeResult(
+          health: SourceHealth.error,
+          latencyMs: stopwatch.elapsedMilliseconds,
+          message: response.statusCode == 404
+              ? '服务器尚未部署此内置源'
+              : detail?.isNotEmpty == true
+              ? detail!
+              : '检测接口返回 HTTP ${response.statusCode}',
+        );
+      }
       final status = data['status']?.toString() ?? 'error';
       return SourceProbeResult(
         health: status == 'healthy' ? SourceHealth.healthy : SourceHealth.error,
@@ -324,9 +355,27 @@ class ContentRepository {
       return SourceProbeResult(
         health: SourceHealth.error,
         latencyMs: stopwatch.elapsedMilliseconds,
-        message: _networkErrorMessage(error),
+        message: _sourceProbeErrorMessage(error),
       );
     }
+  }
+
+  String _sourceProbeErrorMessage(Object error) {
+    final message = error.toString().toLowerCase();
+    if (message.contains('timed out') || message.contains('timeoutexception')) {
+      return '书源检测超时，请稍后重试';
+    }
+    if (message.contains('socketexception') ||
+        message.contains('failed host lookup') ||
+        message.contains('network is unreachable') ||
+        message.contains('connection refused')) {
+      return '无法连接检测服务，请检查网络';
+    }
+    if (message.contains('certificate_verify_failed') ||
+        message.contains('handshakeexception')) {
+      return '检测服务安全连接失败';
+    }
+    return error is ContentRepositoryException ? error.message : '书源检测失败，请稍后重试';
   }
 
   Future<List<FilterGroup>> taxonomy() async {

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/novel_widgets.dart';
 import '../../data/content_repository.dart';
 import '../../domain/content.dart';
@@ -64,12 +65,7 @@ class _BookstorePageState extends State<BookstorePage> {
       setState(() {
         _loading = true;
         _error = null;
-      });
-      final cached = await _repository.cachedHome(channel: _channel);
-      if (!mounted || token != _loadToken) return;
-      setState(() {
-        _data = cached ?? _repository.localHome(channel: _channel);
-        _loading = false;
+        _data = null;
       });
     }
     try {
@@ -83,11 +79,14 @@ class _BookstorePageState extends State<BookstorePage> {
         _pickOffset = 0;
       });
       if (_carouselController.hasClients) _carouselController.jumpToPage(0);
-    } catch (_) {
+    } catch (error) {
       if (!mounted || token != _loadToken) return;
       setState(() {
         _loading = false;
-        _error = _data == null ? '书城加载失败，请检查网络后重试' : null;
+        _data = null;
+        _error = error is ContentRepositoryException
+            ? error.message
+            : '无法连接在线书源，请检查网络后重试';
       });
     }
   }
@@ -209,12 +208,29 @@ class _BookstorePageState extends State<BookstorePage> {
                 ),
                 const SizedBox(height: 8),
                 if (_loading)
-                  const SizedBox(
-                    height: 170,
+                  SizedBox(
+                    height: (MediaQuery.sizeOf(context).height - 190).clamp(
+                      360,
+                      720,
+                    ),
                     child: Center(child: CircularProgressIndicator()),
                   )
                 else if (_error != null)
-                  _LoadError(message: _error!, onRetry: _load)
+                  _BookstoreEmptyState(
+                    icon: Icons.cloud_off_outlined,
+                    title: '书城暂时不可用',
+                    description: '$_error\n在线书源恢复后即可重新获取内容。',
+                    onRetry: _load,
+                  )
+                else if (_data == null || _data!.isEmpty)
+                  _BookstoreEmptyState(
+                    icon: Icons.auto_stories_outlined,
+                    title: '暂时没有可展示的小说',
+                    description:
+                        '当前频道的启用书源没有返回内容。\n'
+                        '你可以稍后重试，或前往书源管理检查状态。',
+                    onRetry: _load,
+                  )
                 else ...[
                   Container(
                     margin: const EdgeInsets.only(bottom: 10),
@@ -562,26 +578,29 @@ class _PickGrid extends StatelessWidget {
   );
 }
 
-class _LoadError extends StatelessWidget {
-  const _LoadError({required this.message, required this.onRetry});
+class _BookstoreEmptyState extends StatelessWidget {
+  const _BookstoreEmptyState({
+    required this.icon,
+    required this.title,
+    required this.description,
+    required this.onRetry,
+  });
 
-  final String message;
+  final IconData icon;
+  final String title;
+  final String description;
   final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: 170,
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        const Icon(Icons.cloud_off_rounded, color: AppColors.tertiaryText),
-        const SizedBox(height: 8),
-        Text(
-          message,
-          style: const TextStyle(color: AppColors.secondaryText, fontSize: 11),
-        ),
-        TextButton(onPressed: onRetry, child: const Text('重新加载')),
-      ],
+    height: (MediaQuery.sizeOf(context).height - 190).clamp(360, 720),
+    child: EmptyState(
+      icon: icon,
+      title: title,
+      description: description,
+      actionLabel: '重新加载',
+      actionIcon: Icons.refresh_rounded,
+      onAction: onRetry,
     ),
   );
 }

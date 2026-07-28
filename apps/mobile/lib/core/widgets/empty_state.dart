@@ -9,6 +9,7 @@ class EmptyState extends StatelessWidget {
     required this.description,
     this.actionLabel,
     this.onAction,
+    this.actionIcon = Icons.add_rounded,
   });
 
   final IconData icon;
@@ -16,6 +17,7 @@ class EmptyState extends StatelessWidget {
   final String description;
   final String? actionLabel;
   final VoidCallback? onAction;
+  final IconData actionIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -72,7 +74,7 @@ class EmptyState extends StatelessWidget {
                     borderRadius: BorderRadius.circular(100),
                   ),
                 ),
-                icon: const Icon(Icons.add_rounded, size: 20),
+                icon: Icon(actionIcon, size: 20),
                 label: Text(
                   actionLabel!,
                   style: const TextStyle(

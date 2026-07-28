@@ -29,6 +29,30 @@ class _DelayedRepository extends ContentRepository {
   Future<HomeData> home({String channel = '推荐'}) => response.future;
 }
 
+class _EmptyRepository extends ContentRepository {
+  int calls = 0;
+
+  @override
+  Future<HomeData> home({String channel = '推荐'}) async {
+    calls += 1;
+    return const HomeData(
+      featured: null,
+      carousel: [],
+      editorsPick: [],
+      latest: [],
+      sourceCount: 2,
+      failedSourceCount: 2,
+    );
+  }
+}
+
+class _FailingRepository extends ContentRepository {
+  @override
+  Future<HomeData> home({String channel = '推荐'}) {
+    throw const ContentRepositoryException('所有启用书源均暂不可用');
+  }
+}
+
 void main() {
   testWidgets('书城支持下拉刷新', (tester) async {
     SharedPreferences.setMockInitialValues({});
@@ -49,7 +73,7 @@ void main() {
     expect(repository.calls, 2);
   });
 
-  testWidgets('书城网络未返回时先显示本地内容而不是持续转圈', (tester) async {
+  testWidgets('书城请求期间不显示本地试读目录', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final repository = _DelayedRepository();
     await tester.pumpWidget(
@@ -60,17 +84,48 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.byType(CircularProgressIndicator), findsNothing);
-    expect(find.text('诡秘之主'), findsWidgets);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.text('诡秘之主'), findsNothing);
 
     repository.response.complete(
-      HomeData(
-        featured: curatedCatalog[1],
-        carousel: curatedCatalog.take(4).toList(),
-        editorsPick: curatedCatalog.skip(2).take(4).toList(),
-        latest: curatedCatalog.reversed.take(4).toList(),
+      const HomeData(featured: null, carousel: [], editorsPick: [], latest: []),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('暂时没有可展示的小说'), findsOneWidget);
+    expect(find.text('诡秘之主'), findsNothing);
+  });
+
+  testWidgets('书源零数据时显示可重试的专业空状态', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = _EmptyRepository();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: BookstorePage(repository: repository)),
       ),
     );
-    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.auto_stories_outlined), findsOneWidget);
+    expect(find.text('暂时没有可展示的小说'), findsOneWidget);
+    expect(find.text('重新加载'), findsOneWidget);
+
+    await tester.tap(find.text('重新加载'));
+    await tester.pumpAndSettle();
+    expect(repository.calls, 2);
+  });
+
+  testWidgets('全部书源不可用时显示错误空状态', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: BookstorePage(repository: _FailingRepository())),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.cloud_off_outlined), findsOneWidget);
+    expect(find.text('书城暂时不可用'), findsOneWidget);
+    expect(find.textContaining('所有启用书源均暂不可用'), findsOneWidget);
+    expect(find.text('诡秘之主'), findsNothing);
   });
 }

@@ -22,6 +22,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
   List<ContentSource> _sources = const [];
   final Map<String, SourceHealth> _healthOverrides = {};
   final Map<String, int> _latencyOverrides = {};
+  final Map<String, int> _probeTokens = {};
   bool _loading = true;
   bool _editing = false;
   bool _testingAll = false;
@@ -47,9 +48,11 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
   }
 
   Future<void> _testSource(ContentSource source) async {
+    final token = (_probeTokens[source.id] ?? 0) + 1;
+    _probeTokens[source.id] = token;
     setState(() => _healthOverrides[source.id] = SourceHealth.checking);
     final result = await _repository.probeSource(source);
-    if (!mounted) return;
+    if (!mounted || _probeTokens[source.id] != token) return;
     setState(() {
       _healthOverrides[source.id] = result.health;
       _latencyOverrides[source.id] = result.latencyMs;

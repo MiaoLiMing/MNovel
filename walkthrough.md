@@ -204,3 +204,33 @@ Android Debug APK 构建已尝试两次，但当前机器仅约 1.8GB 可用物�
 错误。代码分析和全部 Flutter 测试已通过，释放内存后可重新执行：
 
 `flutter build apk --debug`
+
+## 2026-07-27 书源检测与书城空状态修复
+
+### 修复结果
+
+- 内置源检测不再把所有异常转换成“章节无法加载”。生产接口返回 404 时明确提示
+  “服务器尚未部署此内置源”；后端返回的上游 HTML 结构异常原样展示；超时、连接失败
+  和 TLS 失败分别使用对应提示。
+- 连续点击检测时使用按书源递增的请求代次，较早返回的旧检测结果不能覆盖新结果。
+- 书城启动和在线请求失败后均不再读取 `curatedCatalog` 或最近目录缓存；所有在线来源
+  无数据时保持真实空状态。
+- 空状态保留顶部频道与搜索入口，支持下拉刷新，并使用统一的克制图标、说明文字和
+  “重新加载”按钮。零数据与网络/全源失败使用不同标题和图标。
+
+### 验证结果
+
+```text
+Flutter Analyze                         No issues found
+Flutter Test                            35 passed
+正式 /api/v1/mnovel/health              HTTP 200
+正式 xshuquge-authorized 健康接口        HTTP 404（旧后端未部署）
+正式 b520-authorized 健康接口            HTTP 404（旧后端未部署）
+GitHub Actions run 30249919885           failure: missing server host
+```
+
+生产发布未完成且线上未被修改。进一步检查确认现有服务器属于旧式
+`/var/www/unified_backend` 单容器部署，新版发布目录和生产环境文件不存在，Compose
+声明引用的文件也已缺失，无法确认现有数据库是否持久化。为避免重建容器造成数据丢失，
+本轮安全停止生产操作。恢复条件是先备份数据库并补齐生产 Environment secrets 与
+`/opt/madmin/.env.production`，或提供现有容器的可验证 Compose/回滚配置。

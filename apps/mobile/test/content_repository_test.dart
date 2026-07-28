@@ -19,6 +19,78 @@ class _MockSourceStore extends SourceStore {
 }
 
 void main() {
+  test('书城首页不再使用内置试读目录兜底', () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = ContentRepository(
+      sourceStore: _MockSourceStore(const []),
+      client: MockClient((_) async => http.Response('', 503)),
+    );
+
+    final home = await repository.home();
+
+    expect(home.isEmpty, isTrue);
+    expect(home.featured, isNull);
+    expect(home.carousel, isEmpty);
+  });
+
+  test('内置源未部署时返回明确检测结果', () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = ContentRepository(
+      sourceStore: _MockSourceStore(const []),
+      client: MockClient(
+        (_) async => http.Response(
+          '{"detail":"书源不存在"}',
+          404,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      ),
+    );
+    const source = ContentSource(
+      id: 'xshuquge-authorized',
+      name: '书趣阁（授权私用）',
+      description: 'test',
+      channels: {ContentChannel.novel},
+      kind: SourceKind.backendHtml,
+      endpoint: 'http://www.xshuquge.net/',
+      builtIn: true,
+    );
+
+    final result = await repository.probeSource(source);
+
+    expect(result.health, SourceHealth.error);
+    expect(result.message, '服务器尚未部署此内置源');
+  });
+
+  test('内置源保留后端返回的结构异常详情', () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = ContentRepository(
+      sourceStore: _MockSourceStore(const []),
+      client: MockClient(
+        (_) async => http.Response(
+          '{"status":"error","latency_ms":321,'
+          '"message":"b520 当前未提供可解析的章节链接"}',
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      ),
+    );
+    const source = ContentSource(
+      id: 'b520-authorized',
+      name: '笔趣阁 b520（授权私用）',
+      description: 'test',
+      channels: {ContentChannel.novel},
+      kind: SourceKind.backendHtml,
+      endpoint: 'https://www.b520.cc/',
+      builtIn: true,
+    );
+
+    final result = await repository.probeSource(source);
+
+    expect(result.health, SourceHealth.error);
+    expect(result.latencyMs, 321);
+    expect(result.message, contains('章节链接'));
+  });
+
   test('后端不可用时回退到明确标识的内置试读目录', () async {
     SharedPreferences.setMockInitialValues({});
     final repository = ContentRepository(
