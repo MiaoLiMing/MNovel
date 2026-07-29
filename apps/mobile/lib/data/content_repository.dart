@@ -118,21 +118,21 @@ class ContentRepository {
     );
   }
 
-  HomeData localHome({String channel = '推荐'}) =>
-      _composeHome(_channelFallback(channel));
+  HomeData localHome({String channel = '推荐'}) => const HomeData(
+    featured: null,
+    carousel: [],
+    editorsPick: [],
+    latest: [],
+  );
 
   Future<HomeData> home({String channel = '推荐'}) async {
     final collected = <ContentItem>[];
     var reachedNetwork = false;
     var reachedBackend = false;
-    final refreshPage =
-        ((DateTime.now().millisecondsSinceEpoch ~/ 86400000) +
-                _homeRefreshSeed++)
-            .remainder(30) +
-        1;
+    const refreshPage = 1;
+    _homeRefreshSeed++;
     try {
       final data = await _getObject('/home', {
-        'channel': channel,
         'page': '$refreshPage',
       });
       final sections = data['sections'] as List<dynamic>? ?? const [];
@@ -225,7 +225,6 @@ class ContentRepository {
     int page = 1,
   }) async {
     final queryParameters = <String, String>{
-      'channel': channel.name,
       if (query.trim().isNotEmpty) 'query': query.trim(),
       if (category.isNotEmpty && category != '全部') 'category': category,
       if (status.isNotEmpty && status != 'all') 'status': status,
@@ -242,13 +241,7 @@ class ContentRepository {
           .toList(growable: false);
       reachedBackend = true;
     } catch (_) {
-      items = _filterCurated(
-        query: query,
-        category: category,
-        status: status,
-        wordCount: wordCount,
-        source: source,
-      );
+      items = const [];
     }
 
     final sourceItems = await _loadEnabledSourceCatalog(
@@ -269,12 +262,7 @@ class ContentRepository {
             .toList(growable: false),
       );
     } catch (_) {
-      final hot = [...curatedCatalog]
-        ..sort((left, right) => right.score.compareTo(left.score));
-      return SearchMeta(
-        hot: hot,
-        suggestions: hot.take(6).map((item) => item.title).toList(),
-      );
+      return const SearchMeta(hot: [], suggestions: []);
     }
   }
 
@@ -408,30 +396,17 @@ class ContentRepository {
     try {
       final data = await _getObject('/content/${item.id}');
       return ContentItem.fromJson(data).copyWith(progress: item.progress);
-    } catch (_) {
-      return _asTrial(
-        curatedCatalog.firstWhere(
-          (candidate) => candidate.id == item.id,
-          orElse: () => item,
-        ),
-      );
+    } catch (error) {
+      if (item.isLive) {
+        throw ContentRepositoryException(_networkErrorMessage(error));
+      }
+      return item;
     }
   }
 
   /// 将本地状态异步同步到后端；失败时保留本地状态，避免弱网阻塞阅读。
   Future<void> syncFavorite(ContentItem item, bool active) async {
-    try {
-      final response = await _client
-          .put(
-            _uri('/favorites/${Uri.encodeComponent(item.id)}'),
-            headers: const {'content-type': 'application/json'},
-            body: jsonEncode({'channel': item.channel.name, 'active': active}),
-          )
-          .timeout(const Duration(seconds: 8));
-      if (response.statusCode != 204) return;
-    } catch (_) {
-      // 本地书架是主状态，后端同步在下一次操作时重试。
-    }
+    // 最新后端未提供收藏写接口；书架以本地持久化为准。
   }
 
   Future<void> syncProgress(
@@ -439,21 +414,7 @@ class ContentRepository {
     required int unitIndex,
     required double position,
   }) async {
-    try {
-      await _client
-          .put(
-            _uri('/progress/${Uri.encodeComponent(item.id)}'),
-            headers: const {'content-type': 'application/json'},
-            body: jsonEncode({
-              'channel': item.channel.name,
-              'unit_index': unitIndex,
-              'position': position.clamp(0, 1),
-            }),
-          )
-          .timeout(const Duration(seconds: 8));
-    } catch (_) {
-      // 本地阅读进度不依赖网络。
-    }
+    // 最新后端未提供进度写接口；阅读进度以本地持久化为准。
   }
 
   Future<List<ContentItem>> alternatives(ContentItem item) async {
@@ -489,7 +450,10 @@ class ContentRepository {
       return data
           .map((value) => ChapterEntry.fromJson(value))
           .toList(growable: false);
-    } catch (_) {
+    } catch (error) {
+      if (item.isLive) {
+        throw ContentRepositoryException(_networkErrorMessage(error));
+      }
       final count = (item.episodeCount - offset).clamp(0, limit);
       return List.generate(count, (index) {
         final actualIndex = offset + index;
@@ -535,7 +499,7 @@ class ContentRepository {
     try {
       final data = await _getChapterObject(
         '/content/${item.id}/chapters/$index',
-        {'source_id': item.sourceId},
+        const {},
       );
       return _validateChapter(Chapter.fromJson(data));
     } catch (error) {
@@ -589,7 +553,7 @@ class ContentRepository {
         .get(_uri(path, query))
         .timeout(const Duration(seconds: 8));
     if (response.statusCode != 200) {
-      throw ContentRepositoryException('服务暂不可用（${response.statusCode}）');
+      throw ContentRepositoryException(_responseError(response));
     }
     return Map<String, dynamic>.from(
       jsonDecode(utf8.decode(response.bodyBytes)) as Map,
@@ -603,7 +567,7 @@ class ContentRepository {
   ]) async {
     final response = await _client.get(_uri(path, query)).timeout(timeout);
     if (response.statusCode != 200) {
-      throw ContentRepositoryException('服务暂不可用（${response.statusCode}）');
+      throw ContentRepositoryException(_responseError(response));
     }
     return (jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>)
         .map((value) => Map<String, dynamic>.from(value as Map))
@@ -618,7 +582,7 @@ class ContentRepository {
         .get(_uri(path, query))
         .timeout(_chapterTimeout);
     if (response.statusCode != 200) {
-      throw ContentRepositoryException('服务暂不可用（${response.statusCode}）');
+      throw ContentRepositoryException(_responseError(response));
     }
     if (response.bodyBytes.length > _maxChapterResponseBytes) {
       throw const ContentRepositoryException('书源返回的单章正文过大，已停止处理以避免应用卡死');
@@ -646,69 +610,16 @@ class ContentRepository {
     ).replace(queryParameters: query?.isEmpty ?? true ? null : query);
   }
 
-  List<ContentItem> _channelFallback(String channel) {
-    if (channel == '女生') {
-      return curatedCatalog
-          .where(
-            (item) => item.id == 'novel-judge' || item.id == 'novel-fate-ring',
-          )
-          .map(_asTrial)
-          .toList(growable: false);
-    }
-    if (channel == '出版') {
-      return curatedCatalog
-          .where((item) => item.status == NovelStatus.completed)
-          .map(_asTrial)
-          .toList(growable: false);
-    }
-    return curatedCatalog.map(_asTrial).toList(growable: false);
+  String _responseError(http.Response response) {
+    try {
+      final payload = Map<String, dynamic>.from(
+        jsonDecode(utf8.decode(response.bodyBytes)) as Map,
+      );
+      final detail = payload['detail']?.toString().trim();
+      if (detail?.isNotEmpty == true) return detail!;
+    } catch (_) {}
+    return '服务暂不可用（${response.statusCode}）';
   }
-
-  List<ContentItem> _filterCurated({
-    String query = '',
-    String category = '',
-    String status = '',
-    String wordCount = '',
-    String source = '',
-  }) {
-    final normalized = query.trim().toLowerCase();
-    return curatedCatalog
-        .where((item) {
-          final matchesQuery =
-              normalized.isEmpty ||
-              item.title.toLowerCase().contains(normalized) ||
-              item.creator.toLowerCase().contains(normalized) ||
-              item.tags.any((tag) => tag.toLowerCase().contains(normalized));
-          final matchesCategory =
-              category.isEmpty ||
-              category == '全部' ||
-              item.category.contains(category) ||
-              item.tags.contains(category);
-          final matchesStatus =
-              status.isEmpty ||
-              status == 'all' ||
-              (status == 'completed' && item.status == NovelStatus.completed) ||
-              (status == 'serializing' &&
-                  item.status == NovelStatus.serializing);
-          final matchesSource =
-              source.isEmpty ||
-              source == '全部' ||
-              item.sourceLabels.contains(source);
-          return matchesQuery &&
-              matchesCategory &&
-              matchesStatus &&
-              matchesSource &&
-              _matchesWordCount(item.wordCount, wordCount);
-        })
-        .map(_asTrial)
-        .toList(growable: false);
-  }
-
-  ContentItem _asTrial(ContentItem item) => item.copyWith(
-    episodeCount: 1,
-    latestChapter: '内置试读',
-    updateFrequency: '仅提供首章试读',
-  );
 
   Future<List<ContentItem>> _loadEnabledSourceCatalog({
     String query = '',
@@ -729,7 +640,9 @@ class ContentRepository {
               source.kind == SourceKind.js,
         )
         .toList(growable: false);
-    _lastSourceCount = supported.length;
+    _lastSourceCount =
+        supported.length +
+        enabled.where((source) => source.kind == SourceKind.backendRule).length;
     final results = await Future.wait(
       supported.map((source) async {
         try {
@@ -1259,17 +1172,6 @@ class ContentRepository {
     return trimmed.trim();
   }
 
-  bool _matchesWordCount(int value, String bucket) {
-    if (bucket.isEmpty || bucket == 'all') return true;
-    return switch (bucket) {
-      'under-300k' => value < 300000,
-      '300k-1m' => value >= 300000 && value < 1000000,
-      '1m-3m' => value >= 1000000 && value < 3000000,
-      '3m-5m' => value >= 3000000 && value < 5000000,
-      'over-5m' => value >= 5000000,
-      _ => true,
-    };
-  }
 }
 
 const _fallbackTaxonomy = <FilterGroup>[
@@ -1317,9 +1219,9 @@ const _fallbackTaxonomy = <FilterGroup>[
     label: '来源',
     options: [
       FilterOption(value: '全部', label: '全部'),
-      FilterOption(value: '书趣阁（授权私用）', label: '书趣阁'),
-      FilterOption(value: '笔趣阁 b520（授权私用）', label: 'b520'),
-      FilterOption(value: '内置试读', label: '内置试读'),
+      FilterOption(value: '免费小说之王（MIUI）', label: '免费小说之王'),
+      FilterOption(value: '书虫中文网', label: '书虫中文网'),
+      FilterOption(value: '567中文', label: '567中文'),
       FilterOption(value: '自定义书源', label: '自定义'),
     ],
   ),

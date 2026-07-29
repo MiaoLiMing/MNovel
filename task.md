@@ -1,5 +1,16 @@
 # MNovel 阅读、听书、书源与离线能力任务
 
+## 待批准：新版生产后端接口迁移（2026-07-29）
+
+- [ ] 默认 API 地址迁移到 `https://api.flowercat.art/api/v1/mnovel`
+- [ ] 移除 `/home` 的未声明 `channel` 参数
+- [ ] 移除章节请求的未声明 `source_id` 参数
+- [ ] 删除 OpenAPI 不存在的收藏/进度后台同步请求
+- [ ] 统一解析 FastAPI `detail` 错误
+- [ ] 更新 API 契约与 URL 回归测试
+- [ ] 执行正式域名联调、Flutter Analyze/Test
+- [ ] 更新 `walkthrough.md`
+
 ## 已完成：书源检测与书城空状态修复（2026-07-27）
 
 - [x] 区分内置源未部署、上游结构异常、超时和连接失败

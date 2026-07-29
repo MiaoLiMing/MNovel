@@ -29,15 +29,18 @@ class _FailingNextChapterRepository extends ContentRepository {
 }
 
 void main() {
-  testWidgets('主导航完整展示书架、书城、分类和我的', (tester) async {
+  testWidgets('主导航只展示书架、书城和我的', (tester) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(const MNovelApp());
     await tester.pumpAndSettle();
 
     expect(find.text('书架'), findsWidgets);
     expect(find.text('书城'), findsOneWidget);
-    expect(find.text('分类'), findsOneWidget);
     expect(find.text('我的'), findsOneWidget);
+    expect(
+      tester.widget<NavigationBar>(find.byType(NavigationBar)).destinations,
+      hasLength(3),
+    );
     expect(find.text('最近阅读'), findsOneWidget);
   });
 
@@ -51,8 +54,9 @@ void main() {
     await tester.tap(find.text('书源管理'));
     await tester.pumpAndSettle();
 
-    expect(find.text('书趣阁（授权私用）'), findsOneWidget);
-    expect(find.text('笔趣阁 b520（授权私用）'), findsOneWidget);
+    expect(find.text('免费小说之王（MIUI）'), findsOneWidget);
+    expect(find.text('书虫中文网'), findsOneWidget);
+    expect(find.text('567中文'), findsOneWidget);
     expect(find.text('起点中文网'), findsNothing);
     expect(find.text('添加书源'), findsOneWidget);
   });

@@ -1,5 +1,50 @@
 # MNovel 阅读、听书、书源与离线能力完善计划
 
+## 2026-07-29 新版生产后端接口迁移计划（待批准）
+
+### 线上契约核对结果
+
+- 新生产文档与 OpenAPI：
+  - `https://api.flowercat.art/docs`：HTTP 200
+  - `https://api.flowercat.art/api/v1/openapi.json`：HTTP 200
+- MNovel 正式 API 根地址应从 `https://www.flowercat.art/api/v1/mnovel` 迁移到 `https://api.flowercat.art/api/v1/mnovel`。
+- OpenAPI 已提供并实测：
+  - `GET /health`
+  - `GET /home?page=1`
+  - `GET /discover`
+  - `GET /search`
+  - `GET /search/meta`
+  - `GET /taxonomy`
+  - `GET /content/{content_id}`
+  - `GET /content/{content_id}/units?offset=&limit=`
+  - `GET /content/{content_id}/chapters/{chapter_index}`
+  - `GET /sources/{source_id}/health`
+- 线上实测 `xshuquge-authorized` 健康检查为 `healthy`；`b520-authorized` 返回真实结构异常“当前未提供可解析的章节链接”。
+- 使用 `xshuquge-139952` 完成详情、前三章目录和第一章正文联调：正文返回 120 段，动态总章节数为 1838。
+- 当前 Flutter 主要 DTO 与新 OpenAPI 一致，但有以下偏差：
+  1. 默认域名仍是旧的 `www.flowercat.art`。
+  2. `/home` 发送了 OpenAPI 未声明的 `channel` 参数。
+  3. 章节接口发送了 OpenAPI 未声明的 `source_id` 参数。
+  4. 客户端仍静默调用新版 OpenAPI 不存在的 `/favorites/{id}` 与 `/progress/{id}`；这两项本来就是本地状态，应停止无效网络请求。
+  5. 通用请求错误只显示 HTTP 状态，未优先解析后端标准 `detail` 信息。
+
+### 实施方案
+
+1. 将 `ApiConfig.baseUrl` 默认值改为 `https://api.flowercat.art/api/v1/mnovel`，继续保留 `MNOVEL_API_URL` 编译参数以支持测试和私有环境覆盖。
+2. 严格按 OpenAPI 调整请求：
+   - `/home` 只发送 `page`；
+   - 章节正文只使用路径参数，不再附加 `source_id`；
+   - 书架收藏与阅读进度保持设备本地存储，删除不存在接口的后台同步请求。
+3. 抽取统一 JSON 响应检查，优先解析 FastAPI `{"detail": ...}`，保留 UTF-8 字节解码、超时和响应大小保护。
+4. 保持上一轮空书城策略：新后端无数据或不可用时展示专业空状态，不恢复本地试读目录。
+5. 更新 API 配置、请求 URL、404/detail 和生产 DTO 回归测试；执行 Flutter Analyze/Test，并对正式域名逐接口复验。
+
+### 预期结果
+
+- App 默认直接使用新版 `api.flowercat.art`，书城、检测、详情、目录和正文不再依赖旧域名。
+- 请求参数与 OpenAPI 完全一致，不再产生收藏/进度 404 和多余参数。
+- 后端错误能够显示真实 `detail`，同时保持网络异常与空状态体验。
+
 ## 2026-07-27 书源检测与书城空状态修复计划（客户端已完成，生产部署受阻）
 
 ### 已确认根因

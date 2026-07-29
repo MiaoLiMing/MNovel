@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../core/theme/app_theme.dart';
 import '../features/bookstore/bookstore_page.dart';
-import '../features/category/category_page.dart';
 import '../features/profile/profile_page.dart';
 import '../features/shelf/shelf_page.dart';
 
@@ -16,17 +15,16 @@ class AppShell extends StatefulWidget {
 }
 
 class AppShellState extends State<AppShell> {
-  late int _index = widget.initialIndex.clamp(0, 3);
+  late int _index = widget.initialIndex.clamp(0, 2);
 
   void setIndex(int value) {
-    if (value == _index || value < 0 || value > 3) return;
+    if (value == _index || value < 0 || value > 2) return;
     setState(() => _index = value);
   }
 
   final _pages = const <Widget>[
     ShelfPage(),
     BookstorePage(),
-    CategoryPage(),
     ProfilePage(),
   ];
 
@@ -59,11 +57,6 @@ class AppShellState extends State<AppShell> {
               icon: Icon(Icons.auto_stories_outlined, size: 21),
               selectedIcon: Icon(Icons.auto_stories_rounded, size: 21),
               label: '书城',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.grid_view_outlined, size: 20),
-              selectedIcon: Icon(Icons.grid_view_rounded, size: 20),
-              label: '分类',
             ),
             NavigationDestination(
               icon: Icon(Icons.person_outline_rounded, size: 21),

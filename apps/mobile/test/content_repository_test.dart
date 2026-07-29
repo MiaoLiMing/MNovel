@@ -46,12 +46,12 @@ void main() {
       ),
     );
     const source = ContentSource(
-      id: 'xshuquge-authorized',
-      name: '书趣阁（授权私用）',
+      id: 'shuchong-rule',
+      name: '书虫网',
       description: 'test',
       channels: {ContentChannel.novel},
-      kind: SourceKind.backendHtml,
-      endpoint: 'http://www.xshuquge.net/',
+      kind: SourceKind.backendRule,
+      endpoint: 'https://www.shuchong.info/',
       builtIn: true,
     );
 
@@ -68,19 +68,19 @@ void main() {
       client: MockClient(
         (_) async => http.Response(
           '{"status":"error","latency_ms":321,'
-          '"message":"b520 当前未提供可解析的章节链接"}',
+          '"message":"发现规则未解析到任何小说"}',
           200,
           headers: {'content-type': 'application/json; charset=utf-8'},
         ),
       ),
     );
     const source = ContentSource(
-      id: 'b520-authorized',
-      name: '笔趣阁 b520（授权私用）',
+      id: 'shuchong-rule',
+      name: '书虫网',
       description: 'test',
       channels: {ContentChannel.novel},
-      kind: SourceKind.backendHtml,
-      endpoint: 'https://www.b520.cc/',
+      kind: SourceKind.backendRule,
+      endpoint: 'https://www.shuchong.info/',
       builtIn: true,
     );
 
@@ -88,10 +88,10 @@ void main() {
 
     expect(result.health, SourceHealth.error);
     expect(result.latencyMs, 321);
-    expect(result.message, contains('章节链接'));
+    expect(result.message, contains('发现规则'));
   });
 
-  test('后端不可用时回退到明确标识的内置试读目录', () async {
+  test('后端不可用时发现页返回空数据而不是本地试读', () async {
     SharedPreferences.setMockInitialValues({});
     final repository = ContentRepository(
       sourceStore: _MockSourceStore(const []),
@@ -99,12 +99,10 @@ void main() {
     );
 
     final items = await repository.discover(ContentChannel.novel);
-    expect(items, isNotEmpty);
-    expect(items.first.title, '诡秘之主');
-    expect(items.first.sourceLabels, ['内置试读']);
+    expect(items, isEmpty);
   });
 
-  test('分类、状态和字数筛选在离线书库同样生效', () async {
+  test('后端不可用时带筛选的发现页同样返回空数据', () async {
     SharedPreferences.setMockInitialValues({});
     final repository = ContentRepository(
       sourceStore: _MockSourceStore(const []),
@@ -117,8 +115,7 @@ void main() {
       status: 'completed',
       wordCount: '1m-3m',
     );
-    expect(items.map((item) => item.title), contains('道诡异仙'));
-    expect(items.every((item) => item.category.contains('仙侠')), isTrue);
+    expect(items, isEmpty);
   });
 
   test('自定义 JSON 书源会与聚合目录合并', () async {

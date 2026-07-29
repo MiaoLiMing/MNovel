@@ -22,11 +22,12 @@ class BookstorePage extends StatefulWidget {
 }
 
 class _BookstorePageState extends State<BookstorePage> {
-  static const _channels = ['推荐', '男生', '女生', '出版'];
+  static const _tabs = ['推荐', '分类', '榜单'];
 
   late final ContentRepository _repository;
   final _carouselController = PageController();
-  String _channel = _channels.first;
+  String _tab = _tabs.first;
+  String _audience = '男';
   HomeData? _data;
   bool _loading = true;
   String? _error;
@@ -69,7 +70,7 @@ class _BookstorePageState extends State<BookstorePage> {
       });
     }
     try {
-      final data = await _repository.home(channel: _channel);
+      final data = await _repository.home();
       if (!mounted || token != _loadToken) return;
       setState(() {
         _data = data;
@@ -91,10 +92,9 @@ class _BookstorePageState extends State<BookstorePage> {
     }
   }
 
-  void _changeChannel(String value) {
-    if (_channel == value) return;
-    setState(() => _channel = value);
-    unawaited(_load());
+  void _changeTab(String value) {
+    if (_tab == value) return;
+    setState(() => _tab = value);
   }
 
   void _open(ContentItem item) {
@@ -160,18 +160,18 @@ class _BookstorePageState extends State<BookstorePage> {
                         height: 48,
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
-                          itemCount: _channels.length,
-                          separatorBuilder: (_, _) => const SizedBox(width: 20),
+                          itemCount: _tabs.length,
+                          separatorBuilder: (_, _) => const SizedBox(width: 26),
                           itemBuilder: (context, index) {
-                            final channel = _channels[index];
-                            final selected = channel == _channel;
+                            final tab = _tabs[index];
+                            final selected = tab == _tab;
                             return InkWell(
-                              onTap: () => _changeChannel(channel),
+                              onTap: () => _changeTab(tab),
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Text(
-                                    channel,
+                                    tab,
                                     style: TextStyle(
                                       color: selected
                                           ? AppColors.text
@@ -199,15 +199,46 @@ class _BookstorePageState extends State<BookstorePage> {
                         ),
                       ),
                     ),
-                    IconButton(
-                      tooltip: '搜索小说',
-                      onPressed: _openSearch,
-                      icon: const Icon(Icons.search_rounded, size: 20),
+                    _AudienceToggle(
+                      value: _audience,
+                      onChanged: (value) => setState(() => _audience = value),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                if (_loading)
+                const SizedBox(height: 10),
+                InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: _openSearch,
+                  child: Container(
+                    height: 44,
+                    padding: const EdgeInsets.symmetric(horizontal: 13),
+                    decoration: BoxDecoration(
+                      color: AppColors.sand,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(
+                          Icons.search_rounded,
+                          color: AppColors.tertiaryText,
+                          size: 21,
+                        ),
+                        SizedBox(width: 9),
+                        Text(
+                          '请输入作者、书名',
+                          style: TextStyle(
+                            color: AppColors.tertiaryText,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (_tab == '分类')
+                  _BookstoreCategoryGrid(onTap: _openCategory)
+                else if (_loading)
                   SizedBox(
                     height: (MediaQuery.sizeOf(context).height - 190).clamp(
                       360,
@@ -230,6 +261,14 @@ class _BookstorePageState extends State<BookstorePage> {
                         '当前频道的启用书源没有返回内容。\n'
                         '你可以稍后重试，或前往书源管理检查状态。',
                     onRetry: _load,
+                  )
+                else if (_tab == '榜单')
+                  _BookstoreRankings(
+                    items: _data!.latest.isNotEmpty
+                        ? _data!.latest
+                        : _data!.carousel,
+                    onTap: _open,
+                    onMore: _openList,
                   )
                 else ...[
                   Container(
@@ -261,13 +300,10 @@ class _BookstorePageState extends State<BookstorePage> {
                         Expanded(
                           child: Text(
                             _data!.fromNetwork
-                                ? _data!.failedSourceCount > 0
-                                      ? '已聚合 ${_data!.sourceCount - _data!.failedSourceCount} 个来源 · '
-                                            '${_data!.failedSourceCount} 个暂不可用 · 下拉换一批'
-                                      : '内容由 ${_data!.sourceCount} 个启用书源动态聚合 · 下拉可换一批'
+                                ? '内容由统一后端实时聚合 · 下拉可换一批'
                                 : _data!.fromCache
                                 ? '当前网络不可用，展示最近一次聚合缓存'
-                                : '书源暂不可用，正在展示本地兜底目录',
+                                : '内容来自当前设备启用的自定义书源',
                             style: const TextStyle(
                               color: AppColors.secondaryText,
                               fontSize: 9,
@@ -506,6 +542,248 @@ class _QuickCategories extends StatelessWidget {
         ),
       );
     }).toList(),
+  );
+}
+
+class _BookstoreCategoryGrid extends StatelessWidget {
+  const _BookstoreCategoryGrid({required this.onTap});
+
+  final ValueChanged<String> onTap;
+
+  static const _items = [
+    ('玄幻', 'assets/design/cover-mystery-lord.png'),
+    ('奇幻', 'assets/design/cover-fate-ring.png'),
+    ('武侠', 'assets/design/cover-sword-arrival.png'),
+    ('仙侠', 'assets/design/cover-weird-immortal.png'),
+    ('都市', 'assets/design/cover-night-guard.png'),
+    ('历史', 'assets/design/cover-red-heart.png'),
+    ('军事', 'assets/covers/cover-changfeng-wenjian.png'),
+    ('科幻', 'assets/covers/cover-xinghai-yujin.png'),
+    ('游戏', 'assets/covers/cover-fenggui-changan.png'),
+    ('悬疑', 'assets/design/cover-underworld-judge.png'),
+    ('职场', 'assets/design/cover-mystery-lord.png'),
+    ('其他', 'assets/design/cover-fate-ring.png'),
+  ];
+
+  @override
+  Widget build(BuildContext context) => GridView.builder(
+    shrinkWrap: true,
+    physics: const NeverScrollableScrollPhysics(),
+    itemCount: _items.length,
+    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: 3,
+      crossAxisSpacing: 12,
+      mainAxisSpacing: 12,
+      childAspectRatio: .94,
+    ),
+    itemBuilder: (context, index) {
+      final item = _items[index];
+      return InkWell(
+        borderRadius: BorderRadius.circular(9),
+        onTap: () => onTap(item.$1 == '其他' ? '全部' : item.$1),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(9),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              ColorFiltered(
+                colorFilter: ColorFilter.mode(
+                  Colors.white.withValues(alpha: .38),
+                  BlendMode.screen,
+                ),
+                child: Image.asset(item.$2, fit: BoxFit.cover),
+              ),
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Color.fromRGBO(255, 255, 255, .24),
+                ),
+              ),
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 7),
+                  color: Colors.white.withValues(alpha: .82),
+                  child: Text(
+                    item.$1,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: AppColors.text,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class _AudienceToggle extends StatelessWidget {
+  const _AudienceToggle({required this.value, required this.onChanged});
+
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(3),
+    decoration: BoxDecoration(
+      color: AppColors.sand,
+      borderRadius: BorderRadius.circular(7),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: ['男', '女'].map((label) {
+        final selected = value == label;
+        return InkWell(
+          borderRadius: BorderRadius.circular(5),
+          onTap: () => onChanged(label),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: selected ? AppColors.text : Colors.transparent,
+              borderRadius: BorderRadius.circular(5),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: selected ? Colors.white : AppColors.secondaryText,
+                fontSize: 11,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ),
+        );
+      }).toList(growable: false),
+    ),
+  );
+}
+
+class _BookstoreRankings extends StatelessWidget {
+  const _BookstoreRankings({
+    required this.items,
+    required this.onTap,
+    required this.onMore,
+  });
+
+  final List<ContentItem> items;
+  final ValueChanged<ContentItem> onTap;
+  final void Function(String title, List<ContentItem> items) onMore;
+
+  static const _titles = ['人气榜', '完结榜', '新书榜'];
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: List.generate(_titles.length, (sectionIndex) {
+      var ranked = items
+          .skip(sectionIndex * 3)
+          .take(3)
+          .toList(growable: false);
+      if (ranked.isEmpty) ranked = items.take(3).toList(growable: false);
+      return Container(
+        margin: const EdgeInsets.only(bottom: 14),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.divider, width: .7),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _titles[sectionIndex],
+                    style: const TextStyle(
+                      color: AppColors.text,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => onMore(_titles[sectionIndex], ranked),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('更多'),
+                      Icon(Icons.chevron_right_rounded, size: 17),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...ranked.indexed.map(
+              (entry) => InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () => onTap(entry.$2),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Row(
+                    children: [
+                      Text(
+                        '${entry.$1 + 1}',
+                        style: TextStyle(
+                          color: entry.$1 == 0
+                              ? AppColors.coral
+                              : AppColors.secondaryText,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      OfflineContentCover(
+                        item: entry.$2,
+                        width: 38,
+                        height: 50,
+                        radius: 5,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              entry.$2.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.text,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              entry.$2.creator,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.tertiaryText,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }),
   );
 }
 

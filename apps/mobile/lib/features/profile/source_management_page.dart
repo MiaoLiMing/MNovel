@@ -70,20 +70,14 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
       return;
     }
     final (format, catalog, chapter, policy) = switch (source.kind) {
+      SourceKind.backendRule ||
       SourceKind.backendHtml =>
-        source.id == 'b520-authorized'
-            ? (
-                '后端 HTML 在线解析',
-                '读取授权站点首页与详情目录',
-                '当前上游章节链接异常时主动停止并显示错误',
-                'App 不直连站点；后端使用专用标识、限速和短时缓存',
-              )
-            : (
-                '后端 HTML 在线解析',
-                '支持首页目录与站内关键词搜索',
-                '按需获取目录和章节正文，正文短时缓存',
-                'HTTP 上游仅由后端访问；App 始终连接统一 HTTPS API',
-              ),
+        (
+          'MNovel 规则引擎（CSS / JSONPath）',
+          '发现、搜索、详情和目录均由同一规则协议提取',
+          '按需加载章节正文；连接、选择器与结果均由后端缓存',
+          'App 只连接统一 HTTPS API，不保存站点规则或直连上游',
+        ),
       SourceKind.gutendex => (
         'Gutendex REST JSON + Gutenberg TXT',
         '支持分页搜索公共领域电子书',
@@ -434,8 +428,8 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                       children: [
                         if (index == 0)
                           const _SourceSectionLabel(
-                            title: '内置公共书源',
-                            subtitle: '异构格式由统一后端解析',
+                            title: '内置小说源',
+                            subtitle: '三个来源均由统一规则引擎解析',
                           ),
                         if (startsCustom)
                           _SourceSectionLabel(
@@ -565,7 +559,7 @@ class _SourceRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    source.description,
+                    source.endpoint,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
