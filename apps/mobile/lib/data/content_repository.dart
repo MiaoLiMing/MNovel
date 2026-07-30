@@ -275,6 +275,23 @@ class ContentRepository {
     }
   }
 
+  Future<SourceAuditProgress> sourceAuditStatus() async =>
+      SourceAuditProgress.fromJson(await _getObject('/sources/audit/status'));
+
+  Future<SourceAuditProgress> startSourceAudit({bool force = true}) async {
+    final response = await _client
+        .post(_uri('/sources/audit', {'force': '$force'}))
+        .timeout(const Duration(seconds: 8));
+    if (response.statusCode != 200) {
+      throw ContentRepositoryException(_responseError(response));
+    }
+    return SourceAuditProgress.fromJson(
+      Map<String, dynamic>.from(
+        jsonDecode(utf8.decode(response.bodyBytes)) as Map,
+      ),
+    );
+  }
+
   Future<SourceProbeResult> probeSource(ContentSource source) async {
     if (!source.builtIn) {
       if (source.kind == SourceKind.legacy) {
@@ -425,8 +442,16 @@ class ContentRepository {
   }
 
   Future<ContentItem> detail(ContentItem item) async {
+    if (!item.isReadable) {
+      throw ContentRepositoryException(
+        item.unavailableReason.isEmpty ? '当前来源没有可阅读正文' : item.unavailableReason,
+      );
+    }
     if (_isLegacyItem(item)) {
       final chapters = await _loadLegacyChapters(item);
+      if (chapters.isEmpty) {
+        throw const ContentRepositoryException('当前来源没有可用章节');
+      }
       return item.copyWith(
         episodeCount: chapters.length,
         chapterUrls: chapters
@@ -1169,12 +1194,14 @@ class ContentRepository {
             coverAsset: value['cover']?.toString() ?? '',
             popularity: '来自 ${source.name}',
             progress: 0,
-            episodeCount: 0,
+            episodeCount: (value['chapter_count'] as num?)?.toInt() ?? 0,
             sourceId: source.id,
             sourceName: source.name,
             isLive: true,
             latestChapter: value['latest_chapter']?.toString() ?? '',
             sourceLabels: [source.name],
+            availability: _legacyAvailability(value),
+            unavailableReason: _legacyUnavailableReason(value),
           ),
         )
         .where((item) => item.id.isNotEmpty)
@@ -1203,12 +1230,14 @@ class ContentRepository {
             coverAsset: value['cover']?.toString() ?? '',
             popularity: '来自 $sourceName',
             progress: 0,
-            episodeCount: 0,
+            episodeCount: (value['chapter_count'] as num?)?.toInt() ?? 0,
             sourceId: sourceId,
             sourceName: sourceName,
             isLive: true,
             latestChapter: value['latest_chapter']?.toString() ?? '',
             sourceLabels: [sourceName],
+            availability: _legacyAvailability(value),
+            unavailableReason: _legacyUnavailableReason(value),
           );
         })
         .where((item) => item.id.isNotEmpty && item.sourceId.isNotEmpty)
@@ -1220,6 +1249,17 @@ class ContentRepository {
           item.sourceId.startsWith('legado-')) &&
       item.id.startsWith('${item.sourceId}:');
 
+  ContentAvailability _legacyAvailability(Map<String, dynamic> value) {
+    if (value['readable'] == true) return ContentAvailability.readable;
+    final reason = _legacyUnavailableReason(value);
+    return reason.contains('超时') || reason.contains('稍后')
+        ? ContentAvailability.pending
+        : ContentAvailability.unavailable;
+  }
+
+  String _legacyUnavailableReason(Map<String, dynamic> value) =>
+      value['unavailable_reason']?.toString() ?? '当前来源暂无可用正文';
+
   String _legacyDetailUrl(ContentItem item) {
     final encoded = item.id.substring(item.sourceId.length + 1);
     return Uri.decodeComponent(encoded);
@@ -1228,10 +1268,10 @@ class ContentRepository {
   Future<List<Map<String, dynamic>>> _loadLegacyChapters(
     ContentItem item,
   ) async {
-    final source = (await _sourceStore.list()).firstWhere(
-      (value) => value.id == item.sourceId,
-      orElse: () => throw const ContentRepositoryException('未找到小说对应的书源规则'),
-    );
+    final source = await _sourceStore.findById(item.sourceId);
+    if (source == null) {
+      throw const ContentRepositoryException('未找到小说对应的书源规则');
+    }
     if (source.builtIn) {
       return _getList('/sources/legacy/${item.sourceId}/chapters', {
         'detail_url': _legacyDetailUrl(item),
@@ -1248,10 +1288,10 @@ class ContentRepository {
     String chapterUrl,
     String title,
   ) async {
-    final source = (await _sourceStore.list()).firstWhere(
-      (value) => value.id == item.sourceId,
-      orElse: () => throw const ContentRepositoryException('未找到小说对应的书源规则'),
-    );
+    final source = await _sourceStore.findById(item.sourceId);
+    if (source == null) {
+      throw const ContentRepositoryException('未找到小说对应的书源规则');
+    }
     if (source.builtIn) {
       return _getChapterObject('/sources/legacy/${item.sourceId}/chapter', {
         'chapter_url': chapterUrl,

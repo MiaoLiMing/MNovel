@@ -5,7 +5,7 @@ MNovel 是一个纯本地架构的小说、短剧与影视聚合 App。它不依
 ## 运行
 
 ```powershell
-cd D:\work\project\AP\MNovel
+cd D:\喵喵\AIproject\MFront\MNovel
 .\scripts\flutter.ps1 pub get
 .\scripts\flutter.ps1 run
 ```

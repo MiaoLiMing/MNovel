@@ -6,6 +6,8 @@ extension ContentChannelLabel on ContentChannel {
 
 enum NovelStatus { serializing, completed }
 
+enum ContentAvailability { readable, unavailable, pending }
+
 extension NovelStatusLabel on NovelStatus {
   String get label => switch (this) {
     NovelStatus.serializing => '连载中',
@@ -76,6 +78,8 @@ class ContentItem {
     this.chapterUrls,
     this.localChapters,
     this.mediaPlaylists = const [],
+    this.availability = ContentAvailability.readable,
+    this.unavailableReason = '',
   });
 
   final String id;
@@ -102,12 +106,16 @@ class ContentItem {
   final List<String>? chapterUrls;
   final List<Map<String, dynamic>>? localChapters;
   final List<MediaPlaylist> mediaPlaylists;
+  final ContentAvailability availability;
+  final String unavailableReason;
 
   String get unitLabel => '章';
 
   bool get hasPlayableMedia => mediaPlaylists.any(
     (playlist) => playlist.episodes.any((episode) => episode.url.isNotEmpty),
   );
+
+  bool get isReadable => availability == ContentAvailability.readable;
 
   String get wordCountLabel {
     if (wordCount >= 10000) {
@@ -138,6 +146,8 @@ class ContentItem {
     String? updateFrequency,
     List<MediaPlaylist>? mediaPlaylists,
     List<String>? chapterUrls,
+    ContentAvailability? availability,
+    String? unavailableReason,
   }) => ContentItem(
     id: id,
     channel: ContentChannel.novel,
@@ -163,6 +173,8 @@ class ContentItem {
     chapterUrls: chapterUrls ?? this.chapterUrls,
     localChapters: localChapters,
     mediaPlaylists: mediaPlaylists ?? this.mediaPlaylists,
+    availability: availability ?? this.availability,
+    unavailableReason: unavailableReason ?? this.unavailableReason,
   );
 
   factory ContentItem.fromJson(Map<String, dynamic> json) {
@@ -200,6 +212,14 @@ class ContentItem {
         ? explicitUnitCount
         : parsedChapterUrls?.length ?? 10;
     final rawStatus = json['status']?.toString() ?? 'serializing';
+    final unavailableReason = json['unavailable_reason']?.toString() ?? '';
+    final availability = json['readable'] == true
+        ? ContentAvailability.readable
+        : json.containsKey('readable')
+        ? (unavailableReason.contains('超时') || unavailableReason.contains('稍后')
+              ? ContentAvailability.pending
+              : ContentAvailability.unavailable)
+        : ContentAvailability.readable;
 
     return ContentItem(
       id: idVal,
@@ -234,6 +254,8 @@ class ContentItem {
       localChapters: (json['chapters'] as List<dynamic>?)
           ?.map((value) => Map<String, dynamic>.from(value as Map))
           .toList(),
+      availability: availability,
+      unavailableReason: unavailableReason,
     );
   }
 
@@ -259,6 +281,8 @@ class ContentItem {
     'tags': tags,
     'source_labels': sourceLabels,
     'update_frequency': updateFrequency,
+    'readable': isReadable,
+    if (unavailableReason.isNotEmpty) 'unavailable_reason': unavailableReason,
     if (chapterUrls != null) 'chapter_urls': chapterUrls,
     if (localChapters != null) 'chapters': localChapters,
     if (mediaPlaylists.isNotEmpty)

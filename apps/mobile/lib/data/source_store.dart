@@ -1,78 +1,123 @@
 import 'dart:convert';
 
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/api_config.dart';
 import '../domain/content.dart';
 import '../domain/content_source.dart';
 
 class SourceStore {
   static const _customKey = 'content.sources.custom.v1';
+  static const _verifiedKey = 'content.sources.verified.v1';
   // v1 was generated while bundled sources defaulted to disabled. A new key
   // prevents those historical defaults from silently disabling a fresh catalog.
   static const _enabledKey = 'content.sources.enabled.v2';
   static const _orderKey = 'content.sources.order.v1';
   static List<ContentSource>? _legacyCache;
+  static List<ContentSource>? _verifiedCache;
+
+  SourceStore({http.Client? client, String? baseUrl})
+    : _client = client ?? http.Client(),
+      _baseUrl = baseUrl ?? ApiConfig.baseUrl;
+
+  final http.Client _client;
+  final String _baseUrl;
+
   Future<int> count() async {
     return (await list()).length;
   }
 
-  Future<List<ContentSource>> list() async {
+  Future<List<ContentSource>> list({bool refresh = false}) async {
     final prefs = await SharedPreferences.getInstance();
-    final enabledOverrides = _decodeEnabled(prefs.getString(_enabledKey));
-    final primaryBuiltIns = builtInContentSources
-        .map(
-          (source) =>
-              source.copyWith(enabled: enabledOverrides[source.id] ?? true),
-        )
-        .toList();
-    final primaryHosts = primaryBuiltIns
-        .map(
-          (source) => Uri.tryParse(source.endpoint)?.host.toLowerCase() ?? '',
-        )
-        .where((host) => host.isNotEmpty)
-        .toSet();
-    final legacy = (await _loadLegacySources())
-        .where(
-          (source) => !primaryHosts.contains(
-            Uri.tryParse(source.endpoint)?.host.toLowerCase() ?? '',
-          ),
-        )
-        .map(
-          (source) =>
-              source.copyWith(enabled: enabledOverrides[source.id] ?? true),
-        );
-    final builtIns = [...primaryBuiltIns, ...legacy];
-    final custom = _decodeCustom(prefs.getString(_customKey));
-    final sources = [...builtIns, ...custom];
-    final primaryIds = primaryBuiltIns.map((source) => source.id).toSet();
-    final order = _decodeOrder(prefs.getString(_orderKey));
-    final orderIndexes = <String, int>{
-      for (var index = 0; index < order.length; index++) order[index]: index,
-    };
+    var verified = refresh
+        ? null
+        : _verifiedCache ??
+              (prefs.containsKey(_verifiedKey)
+                  ? _decodeVerified(prefs.getString(_verifiedKey))
+                  : null);
+    if (refresh || verified == null) {
+      try {
+        final response = await _client
+            .get(Uri.parse('$_baseUrl/sources/verified'))
+            .timeout(const Duration(seconds: 8));
+        if (response.statusCode == 200) {
+          verified =
+              (jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>)
+                  .map(
+                    (value) => _verifiedSource(
+                      Map<String, dynamic>.from(value as Map),
+                    ),
+                  )
+                  .toList(growable: false);
+          _verifiedCache = verified;
+          await prefs.setString(
+            _verifiedKey,
+            jsonEncode(verified.map((source) => source.toJson()).toList()),
+          );
+        }
+      } catch (_) {}
+    }
+    verified ??= _decodeVerified(prefs.getString(_verifiedKey));
+    _verifiedCache = verified;
+    final sources = [...verified];
     sources.sort((left, right) {
-      final leftGroup = primaryIds.contains(left.id)
-          ? 0
-          : left.builtIn
-          ? 2
-          : 1;
-      final rightGroup = primaryIds.contains(right.id)
-          ? 0
-          : right.builtIn
-          ? 2
-          : 1;
-      final groupComparison = leftGroup.compareTo(rightGroup);
-      if (groupComparison != 0) return groupComparison;
-      final leftIndex = orderIndexes[left.id];
-      final rightIndex = orderIndexes[right.id];
-      if (leftIndex != null && rightIndex != null) {
-        return leftIndex.compareTo(rightIndex);
-      }
-      if (leftIndex != null) return -1;
-      if (rightIndex != null) return 1;
-      return right.priority.compareTo(left.priority);
+      final priority = right.priority.compareTo(left.priority);
+      return priority != 0 ? priority : left.name.compareTo(right.name);
     });
     return sources;
+  }
+
+  Future<ContentSource?> findById(String id) async {
+    for (final source in await list()) {
+      if (source.id == id) return source;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    for (final source in _decodeCustom(prefs.getString(_customKey))) {
+      if (source.id == id) return source.copyWith(enabled: true);
+    }
+    for (final source in [
+      ...builtInContentSources,
+      ...await _loadLegacySources(),
+    ]) {
+      if (source.id == id) return source.copyWith(enabled: true);
+    }
+    return null;
+  }
+
+  static void clearMemoryCache() {
+    _verifiedCache = null;
+  }
+
+  ContentSource _verifiedSource(Map<String, dynamic> value) => ContentSource(
+    id: value['id']?.toString() ?? '',
+    name: value['name']?.toString() ?? '未命名书源',
+    description: '已通过搜索、目录和正文完整链路验证',
+    channels: const {ContentChannel.novel},
+    kind: SourceKind.legacy,
+    endpoint: value['endpoint']?.toString() ?? '',
+    enabled: true,
+    builtIn: true,
+    priority: (value['priority'] as num?)?.toInt() ?? 0,
+    health: SourceHealth.healthy,
+    latencyMs: (value['latency_ms'] as num?)?.toInt() ?? 0,
+    compatibility: 'verified',
+    compatibilityReason: '搜索、目录和正文完整链路正常',
+  );
+
+  List<ContentSource> _decodeVerified(String? raw) {
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      return (jsonDecode(raw) as List<dynamic>)
+          .map(
+            (value) =>
+                ContentSource.fromJson(Map<String, dynamic>.from(value as Map)),
+          )
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
   }
 
   Future<List<ContentSource>> _loadLegacySources() async {
@@ -295,17 +340,6 @@ class SourceStore {
       return data.map((key, value) => MapEntry(key, value == true));
     } catch (_) {
       return {};
-    }
-  }
-
-  List<String> _decodeOrder(String? raw) {
-    if (raw == null || raw.isEmpty) return const [];
-    try {
-      return (jsonDecode(raw) as List<dynamic>)
-          .map((value) => value.toString())
-          .toList(growable: false);
-    } catch (_) {
-      return const [];
     }
   }
 

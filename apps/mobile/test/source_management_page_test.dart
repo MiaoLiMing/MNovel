@@ -1,23 +1,70 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mnovel/data/content_repository.dart';
+import 'package:mnovel/data/source_store.dart';
+import 'package:mnovel/domain/content.dart';
+import 'package:mnovel/domain/content_source.dart';
 import 'package:mnovel/features/profile/source_management_page.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+class _SourceStore extends SourceStore {
+  @override
+  Future<List<ContentSource>> list({bool refresh = false}) async => const [
+    ContentSource(
+      id: 'healthy-one',
+      name: '健康书源一',
+      description: '已验证',
+      channels: {ContentChannel.novel},
+      kind: SourceKind.legacy,
+      endpoint: 'https://one.example',
+      builtIn: true,
+      health: SourceHealth.healthy,
+    ),
+    ContentSource(
+      id: 'healthy-two',
+      name: '健康书源二',
+      description: '已验证',
+      channels: {ContentChannel.novel},
+      kind: SourceKind.legacy,
+      endpoint: 'https://two.example',
+      builtIn: true,
+      health: SourceHealth.healthy,
+    ),
+  ];
+}
+
+class _Repository extends ContentRepository {
+  @override
+  Future<SourceAuditProgress> sourceAuditStatus() async =>
+      const SourceAuditProgress(
+        state: SourceAuditState.completed,
+        total: 2247,
+        completed: 2247,
+        healthy: 2,
+        quarantined: 2245,
+      );
+}
 
 void main() {
-  testWidgets('千级书源目录完成加载后不持续调度动画', (tester) async {
-    SharedPreferences.setMockInitialValues({});
-    await tester.pumpWidget(const MaterialApp(home: SourceManagementPage()));
-
-    for (var attempt = 0; attempt < 40; attempt++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 25)),
-      );
-      await tester.pump(const Duration(milliseconds: 100));
-      if (find.textContaining('当前显示').evaluate().isNotEmpty) break;
-    }
+  testWidgets('书源页只显示统一健康列表且没有分类分组与开关', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SourceManagementPage(
+          repository: _Repository(),
+          store: _SourceStore(),
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
 
-    expect(find.byType(CircularProgressIndicator), findsNothing);
-    expect(find.textContaining('当前显示'), findsOneWidget);
+    expect(find.text('我的书源'), findsOneWidget);
+    expect(find.text('健康书源一'), findsOneWidget);
+    expect(find.text('健康书源二'), findsOneWidget);
+    expect(find.textContaining('已验证 2 个'), findsOneWidget);
+    expect(find.text('全部检测'), findsOneWidget);
+    expect(find.byType(ChoiceChip), findsNothing);
+    expect(find.byType(Switch), findsNothing);
+    expect(find.text('内置小说源'), findsNothing);
+    expect(find.text('APK 书源目录'), findsNothing);
+    expect(find.byIcon(Icons.check_rounded), findsNWidgets(2));
   });
 }

@@ -15,7 +15,7 @@ class _MockSourceStore extends SourceStore {
   final List<ContentSource> sources;
 
   @override
-  Future<List<ContentSource>> list() async => sources;
+  Future<List<ContentSource>> list({bool refresh = false}) async => sources;
 }
 
 void main() {
@@ -162,6 +162,9 @@ void main() {
                 'detail_url': 'https://one.example/book/1',
                 'source_id': 'legado-one',
                 'source_name': '来源一',
+                'chapter_count': 326,
+                'readable': true,
+                'unavailable_reason': '',
               },
               {
                 'id': 'legado-two:book-2',
@@ -170,6 +173,9 @@ void main() {
                 'detail_url': 'https://two.example/book/2',
                 'source_id': 'legado-two',
                 'source_name': '来源二',
+                'chapter_count': 0,
+                'readable': false,
+                'unavailable_reason': '当前来源没有可用章节',
               },
             ]),
             200,
@@ -188,6 +194,10 @@ void main() {
     expect(requestedPaths, contains(endsWith('/sources/legacy/search')));
     expect(items, hasLength(2));
     expect(items.map((item) => item.sourceName), containsAll(['来源一', '来源二']));
+    expect(items.first.episodeCount, 326);
+    expect(items.first.isReadable, isTrue);
+    expect(items.last.isReadable, isFalse);
+    expect(items.last.unavailableReason, '当前来源没有可用章节');
   });
 
   test('书城首页从 Gutendex 真实来源动态构建', () async {

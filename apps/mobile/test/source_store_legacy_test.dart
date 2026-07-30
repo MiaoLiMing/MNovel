@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:mnovel/data/source_store.dart';
 import 'package:mnovel/domain/content_source.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,64 +12,73 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    SourceStore.clearMemoryCache();
   });
 
-  test(
-    'loads the APK legacy source catalog without duplicating primary sources',
-    () async {
-      final sources = await SourceStore().list();
-
-      expect(sources.length, greaterThan(1100));
-      expect(sources.take(3).map((source) => source.id), const [
-        'miui-reader-rule',
-        'shuchong-rule',
-        'xntk-rule',
-      ]);
-      expect(
-        sources.where((source) => source.kind == SourceKind.legacy).length,
-        greaterThan(1100),
-      );
-      expect(
-        sources.any(
-          (source) =>
-              source.name == '爱豆看书' && source.endpoint.contains('a6ksw.com'),
+  test('只加载服务端验证通过的健康书源并统一为内置启用', () async {
+    final store = SourceStore(
+      baseUrl: 'https://api.example/mnovel',
+      client: MockClient(
+        (_) async => http.Response.bytes(
+          utf8.encode(
+            jsonEncode([
+              {
+                'id': 'legacy-healthy-one',
+                'name': '健康书源一',
+                'endpoint': 'https://one.example',
+                'priority': 90,
+                'health': 'healthy',
+                'latency_ms': 120,
+              },
+              {
+                'id': 'legacy-healthy-two',
+                'name': '健康书源二',
+                'endpoint': 'https://two.example',
+                'priority': 80,
+                'health': 'healthy',
+                'latency_ms': 240,
+              },
+            ]),
+          ),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
         ),
-        isTrue,
-      );
-      expect(
-        sources
-            .where((source) => source.kind == SourceKind.legacy)
-            .every((source) => source.enabled),
-        isTrue,
-      );
-    },
-  );
-
-  test('persists a legacy source disable override', () async {
-    final store = SourceStore();
-    final source = (await store.list()).firstWhere(
-      (item) =>
-          item.kind == SourceKind.legacy &&
-          item.compatibility == 'compatible_core',
+      ),
     );
 
-    await store.setEnabled(source.id, false);
-    final reloaded = await SourceStore().list();
+    final sources = await store.list();
 
+    expect(sources.map((source) => source.name), ['健康书源一', '健康书源二']);
+    expect(sources.every((source) => source.builtIn), isTrue);
+    expect(sources.every((source) => source.enabled), isTrue);
     expect(
-      reloaded.firstWhere((item) => item.id == source.id).enabled,
-      isFalse,
+      sources.every((source) => source.health == SourceHealth.healthy),
+      isTrue,
     );
   });
 
-  test('ignores the retired v1 disabled defaults', () async {
+  test('网络失败时使用最近一次健康目录缓存', () async {
     SharedPreferences.setMockInitialValues({
-      'content.sources.enabled.v1': '{"miui-reader-rule":false}',
+      'content.sources.verified.v1': jsonEncode([
+        {
+          'id': 'legacy-cached',
+          'name': '缓存健康源',
+          'description': '已验证',
+          'channels': ['novel'],
+          'kind': 'legacy',
+          'endpoint': 'https://cached.example',
+          'enabled': true,
+          'built_in': true,
+          'health': 'healthy',
+        },
+      ]),
     });
+    final store = SourceStore(
+      client: MockClient((_) async => http.Response('', 503)),
+    );
 
-    final source = (await SourceStore().list()).first;
+    final sources = await store.list();
 
-    expect(source.id, 'miui-reader-rule');
-    expect(source.enabled, isTrue);
+    expect(sources.single.name, '缓存健康源');
   });
 }

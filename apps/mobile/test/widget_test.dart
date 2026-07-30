@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mnovel/app/mnovel_app.dart';
@@ -25,6 +27,20 @@ class _FailingNextChapterRepository extends ContentRepository {
       );
     }
     throw const ContentRepositoryException('当前网络不可用，且本章尚未下载');
+  }
+}
+
+class _AlwaysFailingChapterRepository extends ContentRepository {
+  int calls = 0;
+
+  @override
+  Future<Chapter> chapter(
+    ContentItem item,
+    int index, {
+    bool preferOffline = true,
+  }) async {
+    calls++;
+    throw const ContentRepositoryException('Not Found');
   }
 }
 
@@ -65,25 +81,42 @@ void main() {
   });
 
   testWidgets('我的页面可以进入书源管理', (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SourceStore.clearMemoryCache();
+    SharedPreferences.setMockInitialValues({
+      'content.sources.verified.v1': jsonEncode([
+        {
+          'id': 'verified-demo',
+          'name': '已验证小说源',
+          'description': '已验证',
+          'channels': ['novel'],
+          'kind': 'legacy',
+          'endpoint': 'https://verified.example',
+          'enabled': true,
+          'built_in': true,
+          'health': 'healthy',
+        },
+      ]),
+    });
     await tester.pumpWidget(const MNovelApp());
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('我的'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('书源管理'));
-    await pumpUntilFound(tester, find.textContaining('当前显示'));
+    await pumpUntilFound(tester, find.textContaining('已验证 1 个'));
     await tester.pumpAndSettle();
 
-    expect(find.text('免费小说之王（MIUI）'), findsOneWidget);
-    expect(find.text('书虫中文网'), findsOneWidget);
-    expect(find.text('567中文'), findsOneWidget);
-    expect(find.text('起点中文网'), findsNothing);
-    expect(find.text('添加书源'), findsOneWidget);
+    expect(find.text('我的书源'), findsOneWidget);
+    expect(find.text('已验证小说源'), findsOneWidget);
+    expect(find.byType(ChoiceChip), findsNothing);
+    expect(find.byType(Switch), findsNothing);
   });
 
-  testWidgets('自定义书源整行可点击进入配置', (tester) async {
-    SharedPreferences.setMockInitialValues({});
+  testWidgets('未经过服务端巡检的自定义书源不会混入健康目录', (tester) async {
+    SourceStore.clearMemoryCache();
+    SharedPreferences.setMockInitialValues({
+      'content.sources.verified.v1': '[]',
+    });
     await SourceStore().addCustom(
       const ContentSource(
         id: 'custom-editable',
@@ -100,15 +133,12 @@ void main() {
     await tester.tap(find.text('我的'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('书源管理'));
-    await pumpUntilFound(tester, find.textContaining('当前显示'));
+    await pumpUntilFound(tester, find.textContaining('已验证 0 个'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('我的可编辑书源'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('编辑书源'), findsOneWidget);
-    expect(find.text('书源名称'), findsOneWidget);
-    expect(find.text('HTTPS 地址或 JSON 内容'), findsOneWidget);
+    expect(find.text('我的可编辑书源'), findsNothing);
+    expect(find.text('编辑书源'), findsNothing);
+    expect(find.byType(Switch), findsNothing);
   });
 
   testWidgets('阅读器控制栏可以打开完整设置', (tester) async {
@@ -264,5 +294,32 @@ void main() {
     expect(find.textContaining('第一章 可正常阅读'), findsWidgets);
     expect(find.textContaining('已返回当前章节'), findsOneWidget);
     expect(find.text('重试'), findsOneWidget);
+  });
+
+  testWidgets('首次章节失败后保持稳定错误态且不自动重复请求', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({});
+    final repository = _AlwaysFailingChapterRepository();
+    final item = DemoRepository.items.first.copyWith(episodeCount: 1);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaderPage(item: item, repository: repository),
+      ),
+    );
+    await pumpUntilFound(tester, find.text('章节加载失败'));
+
+    expect(repository.calls, 1);
+    expect(find.text('当前来源没有提供本章正文'), findsOneWidget);
+
+    tester.view.physicalSize = const Size(410, 860);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(repository.calls, 1);
+    expect(find.text('章节加载失败'), findsOneWidget);
   });
 }

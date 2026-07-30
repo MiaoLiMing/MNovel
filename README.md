@@ -21,7 +21,7 @@ Flutter App
 ```
 
 Flutter 应用位于 `apps/mobile`。生产小说聚合服务位于
-`D:\work\project\AP\unified_backend\app\api\v1\mnovel`，默认接口为
+`D:\喵喵\AIproject\unified_backend\app\api\v1\mnovel`，默认接口为
 `https://www.flowercat.art/api/v1/mnovel`。`apps/api` 保留为旧版独立开发服务，
 不再作为 App 的生产书源解析入口。
 

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mnovel/data/reading_progress_store.dart';
 import 'package:mnovel/data/source_store.dart';
@@ -8,24 +10,37 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('内置列表包含统一规则书源和默认启用的 APK 规则目录', () async {
-    SharedPreferences.setMockInitialValues({
-      'content.sources.enabled.v1':
-          '{"qidian":true,"fanqie":true,"custom-example":true}',
-    });
-    final sources = await SourceStore().list();
-    final builtIns = sources.where((source) => source.builtIn).toList();
-
-    expect(
-      builtIns.map((source) => source.id),
-      containsAllInOrder(['miui-reader-rule', 'shuchong-rule', 'xntk-rule']),
-    );
-    expect(builtIns.length, greaterThan(1100));
-    expect(builtIns.every((source) => source.enabled), isTrue);
+  setUp(() {
+    SourceStore.clearMemoryCache();
   });
 
-  test('来源启停与自定义 JSON 来源保存在本机', () async {
-    SharedPreferences.setMockInitialValues({});
+  test('书源列表只包含服务端验证通过的统一内置目录', () async {
+    SharedPreferences.setMockInitialValues({
+      'content.sources.verified.v1': jsonEncode([
+        {
+          'id': 'verified-one',
+          'name': '验证源一',
+          'description': '已验证',
+          'channels': ['novel'],
+          'kind': 'legacy',
+          'endpoint': 'https://one.example',
+          'enabled': true,
+          'built_in': true,
+          'health': 'healthy',
+        },
+      ]),
+    });
+    final sources = await SourceStore().list();
+
+    expect(sources.single.id, 'verified-one');
+    expect(sources.single.builtIn, isTrue);
+    expect(sources.single.enabled, isTrue);
+  });
+
+  test('自定义 JSON 来源继续保存在本机但不会混入健康目录', () async {
+    SharedPreferences.setMockInitialValues({
+      'content.sources.verified.v1': '[]',
+    });
     final store = SourceStore();
 
     final testSource = const ContentSource(
@@ -40,19 +55,16 @@ void main() {
     await store.addCustom(testSource);
     await store.setEnabled('custom-test', false);
 
-    final sources = await store.list();
-    expect(
-      sources.singleWhere((source) => source.id == 'custom-test').enabled,
-      isFalse,
-    );
-    expect(
-      sources.singleWhere((source) => source.id == 'custom-test').name,
-      '测试来源',
-    );
+    expect(await store.list(), isEmpty);
+    final stored = await store.findById('custom-test');
+    expect(stored?.name, '测试来源');
+    expect(stored?.enabled, isTrue);
   });
 
   test('阅读章节与总体进度保存在本机', () async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'content.sources.verified.v1': '[]',
+    });
     final store = ReadingProgressStore();
 
     await store.save(
@@ -74,24 +86,23 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final store = SourceStore();
     final count = await store.importMany(
-      '{"sources":[{"name":"来源甲","kind":"json",'
+      '{"sources":[{"id":"custom-a","name":"来源甲","kind":"json",'
       '"endpoint":"https://example.com/a.json"},'
-      '{"name":"来源乙","kind":"js",'
+      '{"id":"custom-b","name":"来源乙","kind":"js",'
       '"endpoint":"https://example.com/b.js",'
       '"rules":{"discover":"function discover(body){return body;}"}}]}',
     );
 
     expect(count, 2);
-    final sources = await store.list();
-    expect(sources.where((source) => source.name == '来源甲'), hasLength(1));
-    expect(
-      sources.singleWhere((source) => source.name == '来源乙').kind,
-      SourceKind.js,
-    );
+    expect(await store.list(), isEmpty);
+    expect((await store.findById('custom-a'))?.name, '来源甲');
+    expect((await store.findById('custom-b'))?.kind, SourceKind.js);
   });
 
   test('支持直接导入 Legado 完整书源规则', () async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'content.sources.verified.v1': '[]',
+    });
     final store = SourceStore();
 
     final count = await store.importMany(
@@ -103,11 +114,10 @@ void main() {
     );
 
     expect(count, 1);
-    final source = (await store.list()).singleWhere(
-      (item) => item.name == 'Legado 测试源',
-    );
-    expect(source.kind, SourceKind.legacy);
-    expect(source.enabled, isTrue);
-    expect(source.rules?['__source_json'], contains('"ruleSearch"'));
+    expect(await store.list(), isEmpty);
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString('content.sources.custom.v1') ?? '';
+    expect(stored, contains('Legado 测试源'));
+    expect(stored, contains('ruleSearch'));
   });
 }

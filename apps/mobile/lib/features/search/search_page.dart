@@ -152,6 +152,7 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   void _open(ContentItem item) {
+    if (!item.isReadable) return;
     FocusScope.of(context).unfocus();
     Navigator.of(context).push(
       MaterialPageRoute<void>(

@@ -101,6 +101,14 @@ class _ReaderPageState extends State<ReaderPage> {
       }
     });
     _syncAutoPage();
+    if (!widget.item.isReadable) {
+      setState(() {
+        _loadError = widget.item.unavailableReason.isEmpty
+            ? '当前来源没有可阅读正文'
+            : widget.item.unavailableReason;
+      });
+      return;
+    }
     await _loadAndPaginate();
   }
 
@@ -184,7 +192,7 @@ class _ReaderPageState extends State<ReaderPage> {
       setState(() {
         _loading = false;
         _switchingChapter = false;
-        _loadError = error.toString();
+        _loadError = _readableLoadError(error);
       });
       return false;
     }
@@ -221,6 +229,15 @@ class _ReaderPageState extends State<ReaderPage> {
       '${_settings.letterSpacing}:${_settings.horizontalPadding}:'
       '${_settings.firstLineIndent}:${_settings.script.name}';
 
+  String _readableLoadError(Object error) {
+    final message = error.toString().trim();
+    final lowered = message.toLowerCase();
+    if (lowered.contains('not found') || lowered.contains('404')) {
+      return '当前来源没有提供本章正文';
+    }
+    return message.isEmpty ? '章节暂时无法加载，请重试或切换书源' : message;
+  }
+
   void _handleViewport(Size size) {
     if (size.width <= 0 || size.height <= 0) return;
     final changed =
@@ -230,7 +247,9 @@ class _ReaderPageState extends State<ReaderPage> {
     _viewport = size;
     if (!_settingsLoaded) return;
     final signature = _signature(size);
-    if ((changed || signature != _paginationSignature) && !_loading) {
+    if ((changed || signature != _paginationSignature) &&
+        !_loading &&
+        _loadError == null) {
       final offset = _pages.isEmpty
           ? 0
           : _pages[_pageIndex.clamp(0, _pages.length - 1)].startOffset;
@@ -239,7 +258,7 @@ class _ReaderPageState extends State<ReaderPage> {
           _loadAndPaginate(characterOffset: offset);
         }
       });
-    } else if (_pages.isEmpty && !_loading) {
+    } else if (_pages.isEmpty && !_loading && _loadError == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _loadAndPaginate();
       });

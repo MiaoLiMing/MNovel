@@ -42,6 +42,9 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
   late String _selectedSource =
       widget.item.sourceLabels.firstOrNull ?? widget.item.sourceName;
 
+  bool get _canUseDetail =>
+      !_loading && _error == null && _item.isReadable && _item.episodeCount > 0;
+
   @override
   void initState() {
     super.initState();
@@ -73,12 +76,24 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
   }
 
   Future<void> _loadDetail() async {
+    if (!_item.isReadable) {
+      setState(() {
+        _loading = false;
+        _error = _item.unavailableReason.isEmpty
+            ? '当前来源没有可阅读正文'
+            : _item.unavailableReason;
+      });
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
       final detail = await _repository.detail(_item);
+      if (detail.episodeCount <= 0) {
+        throw const ContentRepositoryException('当前来源没有可用章节');
+      }
       if (!mounted) return;
       setState(() {
         _item = detail;
@@ -88,11 +103,13 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
         _loading = false;
       });
       unawaited(_restoreOfflineStatus());
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = '详情加载失败，当前展示书架缓存';
+        _error = error is ContentRepositoryException
+            ? error.message
+            : '详情加载失败，请重试或返回搜索页';
       });
     }
   }
@@ -204,6 +221,7 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
   }
 
   void _start({int chapterIndex = 0}) {
+    if (!_canUseDetail) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ReaderPage(
@@ -529,12 +547,12 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
             child: Row(
               children: [
                 OutlinedButton(
-                  onPressed: _toggleSaved,
+                  onPressed: _canUseDetail ? _toggleSaved : null,
                   child: Text(_saved ? '已在书架' : '加入书架'),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
-                  onPressed: _loading ? null : _showDownloadOptions,
+                  onPressed: _canUseDetail ? _showDownloadOptions : null,
                   icon: Icon(
                     _offlineStatus.isComplete
                         ? Icons.download_done_rounded
@@ -552,7 +570,7 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: FilledButton(
-                    onPressed: _loading ? null : _start,
+                    onPressed: _canUseDetail ? _start : null,
                     child: Text(item.progress > 0 ? '继续阅读' : '开始阅读'),
                   ),
                 ),

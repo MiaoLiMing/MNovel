@@ -14,6 +14,12 @@ class _DetailRepository extends ContentRepository {
   Future<ContentItem> detail(ContentItem item) async => result;
 }
 
+class _FailingDetailRepository extends ContentRepository {
+  @override
+  Future<ContentItem> detail(ContentItem item) async =>
+      throw const ContentRepositoryException('当前来源没有可用章节');
+}
+
 void main() {
   testWidgets(
     'detail page replaces a lightweight novel item with full detail',
@@ -68,4 +74,52 @@ void main() {
       expect(find.text('开始阅读'), findsOneWidget);
     },
   );
+
+  testWidgets('详情加载失败时禁用收藏下载和开始阅读', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    const item = ContentItem(
+      id: 'legacy-failed:book',
+      title: '目录异常小说',
+      creator: '测试作者',
+      category: '玄幻',
+      summary: '',
+      coverAsset: '',
+      popularity: '测试来源',
+      progress: 0,
+      episodeCount: 1,
+      sourceId: 'legacy-failed',
+      sourceName: '异常来源',
+      isLive: true,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ContentDetailPage(
+          item: item,
+          repository: _FailingDetailRepository(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('当前来源没有可用章节'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, '开始阅读'))
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '加入书架'))
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '下载'))
+          .onPressed,
+      isNull,
+    );
+  });
 }

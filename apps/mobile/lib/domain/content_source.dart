@@ -16,6 +16,46 @@ enum SourceKind {
 
 enum SourceHealth { healthy, checking, error, configurationRequired, unknown }
 
+enum SourceAuditState { idle, running, completed, interrupted, failed }
+
+class SourceAuditProgress {
+  const SourceAuditProgress({
+    required this.state,
+    required this.total,
+    required this.completed,
+    required this.healthy,
+    required this.quarantined,
+    this.currentSource = '',
+    this.error = '',
+  });
+
+  final SourceAuditState state;
+  final int total;
+  final int completed;
+  final int healthy;
+  final int quarantined;
+  final String currentSource;
+  final String error;
+
+  bool get isRunning => state == SourceAuditState.running;
+
+  double get ratio => total <= 0 ? 0 : (completed / total).clamp(0, 1);
+
+  factory SourceAuditProgress.fromJson(Map<String, dynamic> json) =>
+      SourceAuditProgress(
+        state: SourceAuditState.values.firstWhere(
+          (value) => value.name == json['status'],
+          orElse: () => SourceAuditState.idle,
+        ),
+        total: (json['total'] as num?)?.toInt() ?? 0,
+        completed: (json['completed'] as num?)?.toInt() ?? 0,
+        healthy: (json['healthy'] as num?)?.toInt() ?? 0,
+        quarantined: (json['quarantined'] as num?)?.toInt() ?? 0,
+        currentSource: json['current_source']?.toString() ?? '',
+        error: json['error']?.toString() ?? '',
+      );
+}
+
 extension SourceHealthLabel on SourceHealth {
   String get label => switch (this) {
     SourceHealth.healthy => '正常',

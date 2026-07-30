@@ -14,7 +14,7 @@
 ## 日常命令
 
 ```powershell
-cd D:\work\project\AP\MNovel
+cd D:\喵喵\AIproject\MFront\MNovel
 .\scripts\flutter.ps1 doctor -v
 .\scripts\verify-mobile.ps1
 ```

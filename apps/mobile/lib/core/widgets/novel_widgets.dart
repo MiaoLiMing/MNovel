@@ -142,7 +142,7 @@ class NovelListRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
+    onTap: item.isReadable ? onTap : null,
     child: Padding(
       padding: EdgeInsets.symmetric(vertical: compact ? 8 : 10),
       child: Row(
@@ -163,8 +163,10 @@ class NovelListRow extends StatelessWidget {
                   item.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.text,
+                  style: TextStyle(
+                    color: item.isReadable
+                        ? AppColors.text
+                        : AppColors.tertiaryText,
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                   ),
@@ -182,15 +184,43 @@ class NovelListRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 5),
-                Text(
-                  '${item.episodeCount}章 · ${item.creator}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.tertiaryText,
-                    fontSize: 10,
+                if (item.isReadable)
+                  Text(
+                    '${item.episodeCount}章 · ${item.creator}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.tertiaryText,
+                      fontSize: 10,
+                    ),
+                  )
+                else
+                  Row(
+                    children: [
+                      Icon(
+                        item.availability == ContentAvailability.pending
+                            ? Icons.schedule_rounded
+                            : Icons.block_rounded,
+                        color: AppColors.danger,
+                        size: 12,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          item.unavailableReason.isEmpty
+                              ? '暂无可阅读正文'
+                              : item.unavailableReason,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.danger,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
                 if (progress != null) ...[
                   const SizedBox(height: 7),
                   Row(
