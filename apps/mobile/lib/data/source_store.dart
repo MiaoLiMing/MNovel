@@ -10,7 +10,7 @@ class SourceStore {
   static const _customKey = 'content.sources.custom.v1';
   static const _enabledKey = 'content.sources.enabled.v1';
   static const _orderKey = 'content.sources.order.v1';
-  static Future<List<ContentSource>>? _legacyCache;
+  static List<ContentSource>? _legacyCache;
   // 1,142 条 APK 记录中有 4 条与三个主规则源同域，列表以主规则源替换。
   static const _bundledVisibleCount = 1141;
 
@@ -31,15 +31,16 @@ class SourceStore {
         )
         .toList();
     final primaryHosts = primaryBuiltIns
-        .map((source) => Uri.tryParse(source.endpoint)?.host.toLowerCase() ?? '')
+        .map(
+          (source) => Uri.tryParse(source.endpoint)?.host.toLowerCase() ?? '',
+        )
         .where((host) => host.isNotEmpty)
         .toSet();
     final legacy = (await _loadLegacySources())
         .where(
-          (source) =>
-              !primaryHosts.contains(
-                Uri.tryParse(source.endpoint)?.host.toLowerCase() ?? '',
-              ),
+          (source) => !primaryHosts.contains(
+            Uri.tryParse(source.endpoint)?.host.toLowerCase() ?? '',
+          ),
         )
         .map(
           (source) => source.copyWith(
@@ -49,14 +50,24 @@ class SourceStore {
     final builtIns = [...primaryBuiltIns, ...legacy];
     final custom = _decodeCustom(prefs.getString(_customKey));
     final sources = [...builtIns, ...custom];
+    final primaryIds = primaryBuiltIns.map((source) => source.id).toSet();
     final order = _decodeOrder(prefs.getString(_orderKey));
     final orderIndexes = <String, int>{
       for (var index = 0; index < order.length; index++) order[index]: index,
     };
     sources.sort((left, right) {
-      if (left.builtIn != right.builtIn) {
-        return left.builtIn ? -1 : 1;
-      }
+      final leftGroup = primaryIds.contains(left.id)
+          ? 0
+          : left.builtIn
+          ? 2
+          : 1;
+      final rightGroup = primaryIds.contains(right.id)
+          ? 0
+          : right.builtIn
+          ? 2
+          : 1;
+      final groupComparison = leftGroup.compareTo(rightGroup);
+      if (groupComparison != 0) return groupComparison;
       final leftIndex = orderIndexes[left.id];
       final rightIndex = orderIndexes[right.id];
       if (leftIndex != null && rightIndex != null) {
@@ -69,20 +80,27 @@ class SourceStore {
     return sources;
   }
 
-  Future<List<ContentSource>> _loadLegacySources() =>
-      _legacyCache ??= _readLegacySources();
+  Future<List<ContentSource>> _loadLegacySources() async {
+    final cached = _legacyCache;
+    if (cached != null) return cached;
+    final sources = await _readLegacySources();
+    _legacyCache = sources;
+    return sources;
+  }
 
   Future<List<ContentSource>> _readLegacySources() async {
     try {
-      final raw = await rootBundle.loadString(
+      final bytes = await rootBundle.load(
         'assets/book_sources/legacy_sources.json',
+      );
+      final raw = utf8.decode(
+        bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes),
       );
       final payload = Map<String, dynamic>.from(jsonDecode(raw) as Map);
       return (payload['sources'] as List<dynamic>? ?? const [])
           .map(
-            (value) => ContentSource.fromJson(
-              Map<String, dynamic>.from(value as Map),
-            ),
+            (value) =>
+                ContentSource.fromJson(Map<String, dynamic>.from(value as Map)),
           )
           .toList(growable: false);
     } catch (_) {

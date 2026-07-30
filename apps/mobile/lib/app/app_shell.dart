@@ -30,7 +30,13 @@ class AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    body: IndexedStack(index: _index, children: _pages),
+    body: IndexedStack(
+      index: _index,
+      children: [
+        for (var index = 0; index < _pages.length; index++)
+          TickerMode(enabled: index == _index, child: _pages[index]),
+      ],
+    ),
     bottomNavigationBar: DecoratedBox(
       decoration: const BoxDecoration(
         color: AppColors.surface,

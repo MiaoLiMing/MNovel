@@ -31,17 +31,19 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
 
   List<ContentSource> get _visibleSources {
     final query = _query.trim().toLowerCase();
-    return _sources.where((source) {
-      final matchesQuery =
-          query.isEmpty ||
-          '${source.name} ${source.endpoint} ${source.group}'
-              .toLowerCase()
-              .contains(query);
-      final matchesCompatibility =
-          _compatibilityFilter == 'all' ||
-          source.compatibility == _compatibilityFilter;
-      return matchesQuery && matchesCompatibility;
-    }).toList(growable: false);
+    return _sources
+        .where((source) {
+          final matchesQuery =
+              query.isEmpty ||
+              '${source.name} ${source.endpoint} ${source.group}'
+                  .toLowerCase()
+                  .contains(query);
+          final matchesCompatibility =
+              _compatibilityFilter == 'all' ||
+              source.compatibility == _compatibilityFilter;
+          return matchesQuery && matchesCompatibility;
+        })
+        .toList(growable: false);
   }
 
   @override
@@ -63,9 +65,9 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
     if (enabled &&
         source.kind == SourceKind.legacy &&
         source.compatibility != 'compatible_core') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(source.compatibilityReason)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(source.compatibilityReason)));
       return;
     }
     await _store.setEnabled(source.id, enabled);
@@ -95,14 +97,12 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
       return;
     }
     final (format, catalog, chapter, policy) = switch (source.kind) {
-      SourceKind.backendRule ||
-      SourceKind.backendHtml =>
-        (
-          'MNovel 规则引擎（CSS / JSONPath）',
-          '发现、搜索、详情和目录均由同一规则协议提取',
-          '按需加载章节正文；连接、选择器与结果均由后端缓存',
-          'App 只连接统一 HTTPS API，不保存站点规则或直连上游',
-        ),
+      SourceKind.backendRule || SourceKind.backendHtml => (
+        'MNovel 规则引擎（CSS / JSONPath）',
+        '发现、搜索、详情和目录均由同一规则协议提取',
+        '按需加载章节正文；连接、选择器与结果均由后端缓存',
+        'App 只连接统一 HTTPS API，不保存站点规则或直连上游',
+      ),
       SourceKind.gutendex => (
         'Gutendex REST JSON + Gutenberg TXT',
         '支持分页搜索公共领域电子书',
@@ -145,10 +145,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
             if (source.group.isNotEmpty)
               _SourceDetailLine(label: '原始分组', value: source.group),
             if (source.compatibility.isNotEmpty)
-              _SourceDetailLine(
-                label: '兼容等级',
-                value: source.compatibility,
-              ),
+              _SourceDetailLine(label: '兼容等级', value: source.compatibility),
           ],
         ),
         actions: [
@@ -183,26 +180,6 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
       if (!mounted) return;
     }
     setState(() => _testingAll = false);
-  }
-
-  Future<void> _reorderVisible(
-    List<ContentSource> visible,
-    int oldIndex,
-    int newIndex,
-  ) async {
-    if (oldIndex < newIndex) newIndex--;
-    final reordered = [...visible];
-    final moved = reordered.removeAt(oldIndex);
-    reordered.insert(newIndex, moved);
-    final replacements = reordered.iterator;
-    final visibleIds = visible.map((source) => source.id).toSet();
-    final values = _sources.map((source) {
-      if (!visibleIds.contains(source.id)) return source;
-      replacements.moveNext();
-      return replacements.current;
-    }).toList();
-    setState(() => _sources = values);
-    await _store.saveOrder(values.map((item) => item.id).toList());
   }
 
   Future<void> _remove(ContentSource source) async {
@@ -416,187 +393,217 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
         .length;
     final enabledCount = _sources.where((source) => source.enabled).length;
     return Scaffold(
-    appBar: AppBar(
-      leading: IconButton(
-        tooltip: '返回',
-        onPressed: () => Navigator.pop(context),
-        icon: const Icon(Icons.chevron_left_rounded, size: 25),
-      ),
-      title: const Text('书源管理'),
-      actions: [
-        IconButton(
-          tooltip: '批量导入',
-          onPressed: _showImporter,
-          icon: const Icon(Icons.file_download_outlined, size: 19),
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: '返回',
+          onPressed: () => Navigator.pop(context),
+          icon: const Icon(Icons.chevron_left_rounded, size: 25),
         ),
-        TextButton(
-          onPressed: () => setState(() => _editing = !_editing),
-          child: Text(
-            _editing ? '完成' : '编辑',
-            style: const TextStyle(
-              color: AppColors.secondaryText,
-              fontSize: 11,
+        title: const Text('书源管理'),
+        actions: [
+          IconButton(
+            tooltip: '批量导入',
+            onPressed: _showImporter,
+            icon: const Icon(Icons.file_download_outlined, size: 19),
+          ),
+          TextButton(
+            onPressed: () => setState(() => _editing = !_editing),
+            child: Text(
+              _editing ? '完成' : '编辑',
+              style: const TextStyle(
+                color: AppColors.secondaryText,
+                fontSize: 11,
+              ),
             ),
           ),
-        ),
-      ],
-    ),
-    body: _loading
-        ? const Center(child: CircularProgressIndicator())
-        : Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-                child: Column(
-                  children: [
-                    TextField(
-                      onChanged: (value) => setState(() => _query = value),
-                      decoration: InputDecoration(
-                        hintText: '搜索名称、域名或分组',
-                        prefixIcon: const Icon(Icons.search_rounded, size: 19),
-                        suffixText:
-                            '${_sources.length} 个 · 启用 $enabledCount · 兼容 $compatibleCount',
-                      ),
+        ],
+      ),
+      body: _loading
+          ? const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.auto_stories_outlined,
+                    color: AppColors.tertiaryText,
+                    size: 30,
+                  ),
+                  SizedBox(height: 10),
+                  Text(
+                    '正在载入书源目录…',
+                    style: TextStyle(
+                      color: AppColors.secondaryText,
+                      fontSize: 12,
                     ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      height: 32,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        children: [
-                          for (final option in const [
-                            ('all', '全部'),
-                            ('compatible_core', '基础兼容'),
-                            ('script_required', '需脚本'),
-                            ('login_required', '需登录'),
-                            ('incomplete', '规则不完整'),
-                            ('audio', '音频'),
-                          ])
-                            Padding(
-                              padding: const EdgeInsets.only(right: 6),
-                              child: ChoiceChip(
-                                label: Text(option.$2),
-                                selected: _compatibilityFilter == option.$1,
-                                onSelected: (_) => setState(
-                                  () => _compatibilityFilter = option.$1,
+                  ),
+                ],
+              ),
+            )
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                  child: Column(
+                    children: [
+                      TextField(
+                        onChanged: (value) => setState(() => _query = value),
+                        decoration: InputDecoration(
+                          hintText: '搜索名称、域名或分组',
+                          prefixIcon: const Icon(
+                            Icons.search_rounded,
+                            size: 19,
+                          ),
+                          suffixText:
+                              '${_sources.length} 个 · 启用 $enabledCount · 兼容 $compatibleCount',
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 32,
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          children: [
+                            for (final option in const [
+                              ('all', '全部'),
+                              ('compatible_core', '基础兼容'),
+                              ('script_required', '需脚本'),
+                              ('login_required', '需登录'),
+                              ('incomplete', '规则不完整'),
+                              ('audio', '音频'),
+                            ])
+                              Padding(
+                                padding: const EdgeInsets.only(right: 6),
+                                child: ChoiceChip(
+                                  label: Text(option.$2),
+                                  selected: _compatibilityFilter == option.$1,
+                                  onSelected: (_) => setState(
+                                    () => _compatibilityFilter = option.$1,
+                                  ),
                                 ),
                               ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '当前显示 ${visibleSources.length} 个；点击名称查看规则能力',
+                          style: const TextStyle(
+                            color: AppColors.tertiaryText,
+                            fontSize: 9,
+                          ),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: _testingAll ? null : _testAll,
+                        icon: _testingAll
+                            ? const SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.speed_rounded, size: 15),
+                        label: const Text('全部检测'),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                    itemCount: visibleSources.length,
+                    itemBuilder: (context, index) {
+                      final source = visibleSources[index];
+                      final health =
+                          _healthOverrides[source.id] ?? source.health;
+                      final latency =
+                          _latencyOverrides[source.id] ?? source.latencyMs;
+                      final startsCustom =
+                          !source.builtIn &&
+                          (index == 0 || visibleSources[index - 1].builtIn);
+                      final startsLegacy =
+                          source.kind == SourceKind.legacy &&
+                          (index == 0 ||
+                              visibleSources[index - 1].kind !=
+                                  SourceKind.legacy);
+                      return Column(
+                        key: ValueKey(source.id),
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (index == 0)
+                            const _SourceSectionLabel(
+                              title: '内置小说源',
+                              subtitle: 'APK 规则目录与现有规则源统一管理',
                             ),
+                          if (startsCustom)
+                            _SourceSectionLabel(
+                              title: '我的书源',
+                              subtitle:
+                                  '仅保存在当前设备 · ${_sources.where((item) => !item.builtIn).length} 个',
+                            ),
+                          if (startsLegacy)
+                            const _SourceSectionLabel(
+                              title: 'APK 书源目录',
+                              subtitle: '按兼容等级启用，旧版优先级仅在本目录内生效',
+                            ),
+                          _SourceRow(
+                            source: source,
+                            health: health,
+                            latencyMs: latency,
+                            editing: _editing,
+                            onTap: () => _showSourceDetails(source),
+                            onTest: () => _testSource(source),
+                            onToggle: (value) => _toggle(source, value),
+                            onEdit: source.builtIn
+                                ? null
+                                : () => _showEditor(source: source),
+                            onDelete: source.builtIn
+                                ? null
+                                : () => _remove(source),
+                          ),
                         ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '当前显示 ${visibleSources.length} 个；点击名称查看规则能力',
-                        style: const TextStyle(
-                          color: AppColors.tertiaryText,
-                          fontSize: 9,
-                        ),
-                      ),
-                    ),
-                    TextButton.icon(
-                      onPressed: _testingAll ? null : _testAll,
-                      icon: _testingAll
-                          ? const SizedBox(
-                              width: 12,
-                              height: 12,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.speed_rounded, size: 15),
-                      label: const Text('全部检测'),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: ReorderableListView.builder(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                  itemCount: visibleSources.length,
-                  onReorderItem: (oldIndex, newIndex) =>
-                      _reorderVisible(visibleSources, oldIndex, newIndex),
-                  buildDefaultDragHandles: false,
-                  itemBuilder: (context, index) {
-                    final source = visibleSources[index];
-                    final health = _healthOverrides[source.id] ?? source.health;
-                    final latency =
-                        _latencyOverrides[source.id] ?? source.latencyMs;
-                    final startsCustom =
-                        !source.builtIn &&
-                        (index == 0 || visibleSources[index - 1].builtIn);
-                    return Column(
-                      key: ValueKey(source.id),
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (index == 0)
-                          const _SourceSectionLabel(
-                            title: '内置小说源',
-                            subtitle: 'APK 规则目录与现有规则源统一管理',
-                          ),
-                        if (startsCustom)
-                          _SourceSectionLabel(
-                            title: '我的书源',
-                            subtitle:
-                                '仅保存在当前设备 · ${_sources.where((item) => !item.builtIn).length} 个',
-                          ),
-                        _SourceRow(
-                          index: index,
-                          source: source,
-                          health: health,
-                          latencyMs: latency,
-                          editing: _editing,
-                          onTap: () => _showSourceDetails(source),
-                          onTest: () => _testSource(source),
-                          onToggle: (value) => _toggle(source, value),
-                          onEdit: source.builtIn
-                              ? null
-                              : () => _showEditor(source: source),
-                          onDelete: source.builtIn
-                              ? null
-                              : () => _remove(source),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-              DecoratedBox(
-                decoration: const BoxDecoration(
-                  color: AppColors.surface,
-                  border: Border(
-                    top: BorderSide(color: AppColors.divider, width: .7),
+                      );
+                    },
                   ),
                 ),
-                child: SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: _showEditor,
-                        icon: const Icon(Icons.add_rounded),
-                        label: const Text('添加书源'),
+                DecoratedBox(
+                  decoration: const BoxDecoration(
+                    color: AppColors.surface,
+                    border: Border(
+                      top: BorderSide(color: AppColors.divider, width: .7),
+                    ),
+                  ),
+                  child: SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _showEditor,
+                          icon: const Icon(Icons.add_rounded),
+                          label: const Text('添加书源'),
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
     );
   }
 }
 
 class _SourceRow extends StatelessWidget {
   const _SourceRow({
-    required this.index,
     required this.source,
     required this.health,
     required this.latencyMs,
@@ -608,7 +615,6 @@ class _SourceRow extends StatelessWidget {
     this.onDelete,
   });
 
-  final int index;
   final ContentSource source;
   final SourceHealth health;
   final int latencyMs;
@@ -642,15 +648,12 @@ class _SourceRow extends StatelessWidget {
         ),
         child: Row(
           children: [
-            ReorderableDragStartListener(
-              index: index,
-              child: const Padding(
-                padding: EdgeInsets.all(6),
-                child: Icon(
-                  Icons.drag_handle_rounded,
-                  color: AppColors.tertiaryText,
-                  size: 18,
-                ),
+            const Padding(
+              padding: EdgeInsets.all(6),
+              child: Icon(
+                Icons.source_outlined,
+                color: AppColors.tertiaryText,
+                size: 18,
               ),
             ),
             const SizedBox(width: 3),

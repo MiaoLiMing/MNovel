@@ -29,6 +29,26 @@ class _FailingNextChapterRepository extends ContentRepository {
 }
 
 void main() {
+  Future<void> pumpUntilFound(
+    WidgetTester tester,
+    Finder finder, {
+    int attempts = 200,
+  }) async {
+    for (var attempt = 0; attempt < attempts; attempt++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 25)),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      if (finder.evaluate().isNotEmpty) return;
+    }
+    final visibleTexts = tester
+        .widgetList<Text>(find.byType(Text))
+        .map((widget) => widget.data)
+        .whereType<String>()
+        .join(' | ');
+    fail('等待目标内容超时。当前文本：$visibleTexts');
+  }
+
   testWidgets('主导航只展示书架、书城和我的', (tester) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(const MNovelApp());
@@ -52,6 +72,7 @@ void main() {
     await tester.tap(find.text('我的'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('书源管理'));
+    await pumpUntilFound(tester, find.textContaining('当前显示'));
     await tester.pumpAndSettle();
 
     expect(find.text('免费小说之王（MIUI）'), findsOneWidget);
@@ -79,13 +100,15 @@ void main() {
     await tester.tap(find.text('我的'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('书源管理'));
+    await pumpUntilFound(tester, find.textContaining('当前显示'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('我的可编辑书源'));
     await tester.pumpAndSettle();
 
     expect(find.text('编辑书源'), findsOneWidget);
-    expect(find.byType(TextField), findsNWidgets(2));
+    expect(find.text('书源名称'), findsOneWidget);
+    expect(find.text('HTTPS 地址或 JSON 内容'), findsOneWidget);
   });
 
   testWidgets('阅读器控制栏可以打开完整设置', (tester) async {

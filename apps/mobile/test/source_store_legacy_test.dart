@@ -10,30 +10,36 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  test('loads the APK legacy source catalog without duplicating primary sources',
-      () async {
-    final sources = await SourceStore().list();
+  test(
+    'loads the APK legacy source catalog without duplicating primary sources',
+    () async {
+      final sources = await SourceStore().list();
 
-    expect(sources.length, greaterThan(1100));
-    expect(
-      sources.where((source) => source.kind == SourceKind.legacy).length,
-      greaterThan(1100),
-    );
-    expect(
-      sources.any(
-        (source) =>
-            source.name == '爱豆看书' &&
-            source.endpoint.contains('a6ksw.com'),
-      ),
-      isTrue,
-    );
-    expect(
-      sources
-          .where((source) => source.kind == SourceKind.legacy)
-          .every((source) => !source.enabled),
-      isTrue,
-    );
-  });
+      expect(sources.length, greaterThan(1100));
+      expect(sources.take(3).map((source) => source.id), const [
+        'miui-reader-rule',
+        'shuchong-rule',
+        'xntk-rule',
+      ]);
+      expect(
+        sources.where((source) => source.kind == SourceKind.legacy).length,
+        greaterThan(1100),
+      );
+      expect(
+        sources.any(
+          (source) =>
+              source.name == '爱豆看书' && source.endpoint.contains('a6ksw.com'),
+        ),
+        isTrue,
+      );
+      expect(
+        sources
+            .where((source) => source.kind == SourceKind.legacy)
+            .every((source) => !source.enabled),
+        isTrue,
+      );
+    },
+  );
 
   test('persists a legacy source enable override', () async {
     final store = SourceStore();
