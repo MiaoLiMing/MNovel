@@ -137,6 +137,7 @@ class ContentItem {
     List<String>? sourceLabels,
     String? updateFrequency,
     List<MediaPlaylist>? mediaPlaylists,
+    List<String>? chapterUrls,
   }) => ContentItem(
     id: id,
     channel: ContentChannel.novel,
@@ -159,7 +160,7 @@ class ContentItem {
     tags: tags ?? this.tags,
     sourceLabels: sourceLabels ?? this.sourceLabels,
     updateFrequency: updateFrequency ?? this.updateFrequency,
-    chapterUrls: chapterUrls,
+    chapterUrls: chapterUrls ?? this.chapterUrls,
     localChapters: localChapters,
     mediaPlaylists: mediaPlaylists ?? this.mediaPlaylists,
   );

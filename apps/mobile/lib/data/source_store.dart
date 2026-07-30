@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../domain/content.dart';
@@ -9,34 +10,84 @@ class SourceStore {
   static const _customKey = 'content.sources.custom.v1';
   static const _enabledKey = 'content.sources.enabled.v1';
   static const _orderKey = 'content.sources.order.v1';
+  static Future<List<ContentSource>>? _legacyCache;
+  // 1,142 条 APK 记录中有 4 条与三个主规则源同域，列表以主规则源替换。
+  static const _bundledVisibleCount = 1141;
+
+  Future<int> count() async {
+    final prefs = await SharedPreferences.getInstance();
+    return _bundledVisibleCount +
+        _decodeCustom(prefs.getString(_customKey)).length;
+  }
 
   Future<List<ContentSource>> list() async {
     final prefs = await SharedPreferences.getInstance();
     final enabledOverrides = _decodeEnabled(prefs.getString(_enabledKey));
-    final builtIns = builtInContentSources
+    final primaryBuiltIns = builtInContentSources
         .map(
           (source) => source.copyWith(
             enabled: enabledOverrides[source.id] ?? source.enabled,
           ),
         )
         .toList();
+    final primaryHosts = primaryBuiltIns
+        .map((source) => Uri.tryParse(source.endpoint)?.host.toLowerCase() ?? '')
+        .where((host) => host.isNotEmpty)
+        .toSet();
+    final legacy = (await _loadLegacySources())
+        .where(
+          (source) =>
+              !primaryHosts.contains(
+                Uri.tryParse(source.endpoint)?.host.toLowerCase() ?? '',
+              ),
+        )
+        .map(
+          (source) => source.copyWith(
+            enabled: enabledOverrides[source.id] ?? source.enabled,
+          ),
+        );
+    final builtIns = [...primaryBuiltIns, ...legacy];
     final custom = _decodeCustom(prefs.getString(_customKey));
     final sources = [...builtIns, ...custom];
     final order = _decodeOrder(prefs.getString(_orderKey));
+    final orderIndexes = <String, int>{
+      for (var index = 0; index < order.length; index++) order[index]: index,
+    };
     sources.sort((left, right) {
       if (left.builtIn != right.builtIn) {
         return left.builtIn ? -1 : 1;
       }
-      final leftIndex = order.indexOf(left.id);
-      final rightIndex = order.indexOf(right.id);
-      if (leftIndex >= 0 && rightIndex >= 0) {
+      final leftIndex = orderIndexes[left.id];
+      final rightIndex = orderIndexes[right.id];
+      if (leftIndex != null && rightIndex != null) {
         return leftIndex.compareTo(rightIndex);
       }
-      if (leftIndex >= 0) return -1;
-      if (rightIndex >= 0) return 1;
+      if (leftIndex != null) return -1;
+      if (rightIndex != null) return 1;
       return right.priority.compareTo(left.priority);
     });
     return sources;
+  }
+
+  Future<List<ContentSource>> _loadLegacySources() =>
+      _legacyCache ??= _readLegacySources();
+
+  Future<List<ContentSource>> _readLegacySources() async {
+    try {
+      final raw = await rootBundle.loadString(
+        'assets/book_sources/legacy_sources.json',
+      );
+      final payload = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      return (payload['sources'] as List<dynamic>? ?? const [])
+          .map(
+            (value) => ContentSource.fromJson(
+              Map<String, dynamic>.from(value as Map),
+            ),
+          )
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
   }
 
   Future<void> setEnabled(String id, bool enabled) async {

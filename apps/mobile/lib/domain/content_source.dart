@@ -11,6 +11,7 @@ enum SourceKind {
   itunes,
   json,
   js,
+  legacy,
 }
 
 enum SourceHealth { healthy, checking, error, configurationRequired, unknown }
@@ -39,6 +40,9 @@ class ContentSource {
     this.health = SourceHealth.healthy,
     this.latencyMs = 0,
     this.rules,
+    this.group = '',
+    this.compatibility = '',
+    this.compatibilityReason = '',
   });
 
   final String id;
@@ -53,6 +57,9 @@ class ContentSource {
   final SourceHealth health;
   final int latencyMs;
   final Map<String, String>? rules;
+  final String group;
+  final String compatibility;
+  final String compatibilityReason;
 
   ContentSource copyWith({
     String? name,
@@ -62,6 +69,9 @@ class ContentSource {
     int? priority,
     SourceHealth? health,
     int? latencyMs,
+    String? group,
+    String? compatibility,
+    String? compatibilityReason,
   }) => ContentSource(
     id: id,
     name: name ?? this.name,
@@ -75,6 +85,9 @@ class ContentSource {
     health: health ?? this.health,
     latencyMs: latencyMs ?? this.latencyMs,
     rules: rules,
+    group: group ?? this.group,
+    compatibility: compatibility ?? this.compatibility,
+    compatibilityReason: compatibilityReason ?? this.compatibilityReason,
   );
 
   factory ContentSource.fromJson(Map<String, dynamic> json) => ContentSource(
@@ -105,6 +118,12 @@ class ContentSource {
     rules: (json['rules'] as Map<dynamic, dynamic>?)?.map(
       (key, value) => MapEntry(key as String, value as String),
     ),
+    group: json['group'] as String? ?? '',
+    compatibility: json['compatibility'] as String? ?? '',
+    compatibilityReason:
+        json['compatibility_reason'] as String? ??
+        json['compatibilityReason'] as String? ??
+        '',
   );
 
   Map<String, dynamic> toJson() => {
@@ -120,6 +139,10 @@ class ContentSource {
     'health': health.name,
     'latency_ms': latencyMs,
     if (rules != null) 'rules': rules,
+    if (group.isNotEmpty) 'group': group,
+    if (compatibility.isNotEmpty) 'compatibility': compatibility,
+    if (compatibilityReason.isNotEmpty)
+      'compatibility_reason': compatibilityReason,
   };
 }
 

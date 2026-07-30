@@ -168,3 +168,5 @@ class SourceStatus(BaseModel):
     base_url: str = ""
     built_in: bool = False
     last_checked: str | None = None
+    status: str = ""
+    message: str = ""

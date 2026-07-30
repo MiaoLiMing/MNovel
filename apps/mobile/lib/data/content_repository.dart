@@ -393,6 +393,16 @@ class ContentRepository {
   }
 
   Future<ContentItem> detail(ContentItem item) async {
+    if (_isLegacyItem(item)) {
+      final chapters = await _loadLegacyChapters(item);
+      return item.copyWith(
+        episodeCount: chapters.length,
+        chapterUrls: chapters
+            .map((chapter) => chapter['url']?.toString() ?? '')
+            .where((url) => url.isNotEmpty)
+            .toList(growable: false),
+      );
+    }
     try {
       final data = await _getObject('/content/${item.id}');
       return ContentItem.fromJson(data).copyWith(progress: item.progress);
@@ -442,6 +452,15 @@ class ContentRepository {
     int offset = 0,
     int limit = 100,
   }) async {
+    if (_isLegacyItem(item)) {
+      final chapters = await _loadLegacyChapters(item);
+      return chapters.skip(offset).take(limit).map((chapter) {
+        return ChapterEntry(
+          index: (chapter['index'] as num?)?.toInt() ?? 0,
+          title: chapter['title']?.toString() ?? '未命名章节',
+        );
+      }).toList(growable: false);
+    }
     try {
       final data = await _getList('/content/${item.id}/units', {
         'offset': '$offset',
@@ -488,6 +507,33 @@ class ContentRepository {
             .map((value) => value.toString())
             .toList(growable: false),
         index: index,
+      );
+    }
+
+    if (_isLegacyItem(item)) {
+      var urls = item.chapterUrls;
+      if (urls == null || index >= urls.length) {
+        final chapters = await _loadLegacyChapters(item);
+        urls = chapters
+            .map((chapter) => chapter['url']?.toString() ?? '')
+            .where((url) => url.isNotEmpty)
+            .toList(growable: false);
+      }
+      if (index >= urls.length) {
+        throw const ContentRepositoryException('当前书源没有提供这一章');
+      }
+      final data = await _getChapterObject(
+        '/sources/legacy/${item.sourceId}/chapter',
+        {'chapter_url': urls[index], 'title': '第 ${index + 1} 章'},
+      );
+      return _validateChapter(
+        Chapter(
+          title: data['title']?.toString() ?? '第 ${index + 1} 章',
+          paragraphs: (data['paragraphs'] as List<dynamic>? ?? const [])
+              .map((value) => value.toString())
+              .toList(growable: false),
+          index: index,
+        ),
       );
     }
 
@@ -637,8 +683,10 @@ class ContentRepository {
                       source.kind == SourceKind.wikisource ||
                       source.kind == SourceKind.internetArchive)) ||
               source.kind == SourceKind.json ||
-              source.kind == SourceKind.js,
+              source.kind == SourceKind.js ||
+              source.kind == SourceKind.legacy,
         )
+        .take(12)
         .toList(growable: false);
     _lastSourceCount =
         supported.length +
@@ -664,6 +712,11 @@ class ContentRepository {
             ),
             SourceKind.json ||
             SourceKind.js => _loadOneCustomSource(source, query: query),
+            SourceKind.legacy => _loadOneLegacySource(
+              source,
+              query: query,
+              page: page,
+            ),
             _ => Future.value(<ContentItem>[]),
           };
         } catch (_) {
@@ -1029,6 +1082,57 @@ class ContentRepository {
         })
         .toList(growable: false);
   }
+
+  Future<List<ContentItem>> _loadOneLegacySource(
+    ContentSource source, {
+    required String query,
+    required int page,
+  }) async {
+    if (query.trim().isEmpty) return const [];
+    final values = await _getList(
+      '/sources/legacy/${source.id}/search',
+      {'query': query.trim(), 'page': '$page'},
+      const Duration(seconds: 12),
+    );
+    return values
+        .map(
+          (value) => ContentItem(
+            id: value['id']?.toString() ?? '',
+            title: value['title']?.toString() ?? '未命名小说',
+            creator: value['author']?.toString() ?? '未知作者',
+            category: value['kind']?.toString() ?? '网络小说',
+            summary: value['introduction']?.toString() ?? '',
+            coverAsset: value['cover']?.toString() ?? '',
+            popularity: '来自 ${source.name}',
+            progress: 0,
+            episodeCount: 0,
+            sourceId: source.id,
+            sourceName: source.name,
+            isLive: true,
+            latestChapter: value['latest_chapter']?.toString() ?? '',
+            sourceLabels: [source.name],
+          ),
+        )
+        .where((item) => item.id.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  bool _isLegacyItem(ContentItem item) =>
+      item.sourceId.startsWith('legacy-') &&
+      item.id.startsWith('${item.sourceId}:');
+
+  String _legacyDetailUrl(ContentItem item) {
+    final encoded = item.id.substring(item.sourceId.length + 1);
+    return Uri.decodeComponent(encoded);
+  }
+
+  Future<List<Map<String, dynamic>>> _loadLegacyChapters(
+    ContentItem item,
+  ) => _getList(
+    '/sources/legacy/${item.sourceId}/chapters',
+    {'detail_url': _legacyDetailUrl(item)},
+    _chapterTimeout,
+  );
 
   List<ContentItem> _mergeItems(List<ContentItem> items) {
     final merged = <String, ContentItem>{};

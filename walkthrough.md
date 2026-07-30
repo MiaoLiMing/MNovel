@@ -234,3 +234,133 @@ GitHub Actions run 30249919885           failure: missing server host
 声明引用的文件也已缺失，无法确认现有数据库是否持久化。为避免重建容器造成数据丢失，
 本轮安全停止生产操作。恢复条件是先备份数据库并补齐生产 Environment secrets 与
 `/opt/madmin/.env.production`，或提供现有容器的可验证 Compose/回滚配置。
+
+## 2026-07-30 三站统一规则源、生产发布与移动端验收
+
+### 已交付
+
+- 后端新增通用 JSON 书源规则引擎，HTML 规则使用 BeautifulSoup CSS Selector，JSON 规则使用 `jsonpath-ng`。
+- 三个入口统一实现发现/搜索、详情、目录、正文和全链路健康检查：
+  - 免费小说之王（MIUI）：完整可用；
+  - 书虫中文网：规则存在，当前上游域名不可用；
+  - 567中文：规则存在，当前上游域名超时/503。
+- Flutter 默认 API 更新为 `https://api.flowercat.art/api/v1/mnovel`，移除旧参数、无效写接口和本地试读兜底。
+- 底部导航调整为“书架 / 书城 / 我的”；书城内部提供“推荐 / 分类 / 榜单”。
+- 书源页首次进入显示“未检测”，检测后展示真实延迟与正常/异常结果。
+- 阅读器与听书页已用生产小说完成可视化验收，不再持续转圈或进入无响应状态。
+
+### 生产发布
+
+正式版本已切换到：
+
+```text
+release       /opt/madmin/releases/20260729101600
+image tag     20260729101600
+backup        /opt/madmin/backups/madmin-20260729T101600Z.dump
+```
+
+发布脚本同时修复：
+
+- 管道执行远端脚本时子进程吞掉后续标准输入；
+- Windows PowerShell 把 Docker Compose 正常 stderr 当成终止错误；
+- 缺少完整远端发布标记仍误报成功；
+- 只验证通用健康页、未验证 MNovel 三个规则源；
+- 管理端使用构建时同源默认配置时被错误判定为失败。
+
+### 公网真实链路
+
+```text
+MIUI 健康检查       healthy，约 2.2 秒，正文 31 段
+书虫中文网          error，上游暂时不可用
+567中文             error，上游超时/503
+书城首页             返回真实 MIUI 小说
+搜索“修仙”          返回《修仙狂徒》
+详情                 《女总裁的顶级高手》，2508 章
+目录                 前三章可读，总数 2508
+第一章正文           31 段
+```
+
+应用内浏览器进一步完成《修仙狂徒》端到端验证：书城卡片 → 详情 → 阅读正文 → 听书页面，阅读器显示真实正文并识别 4637 章总数。
+
+### 自动化与构建
+
+```text
+unified_backend pytest                 53 passed
+unified_backend MNovel scoped Ruff     passed
+Flutter analyze                        No issues found
+Flutter test                           35 passed
+Flutter Web release                    Built build/web
+Flutter Android release                Built app-release.apk (74.7 MB)
+APK SHA-256                            362983D57F44A0C24213873E9F5510A350C5BEC358812B28B831774CE6428471
+```
+
+Android Release APK：
+
+`apps/mobile/build/app/outputs/flutter-apk/app-release.apk`
+
+视觉验收截图位于 `qa/screenshots/`，详细结论见 `design-qa.md`。
+
+### 当前外部限制
+
+两个 HTML 站点当前域名本身已失效或被重新分配，规则引擎无法从不存在的小说 DOM 中提取正文。应用不会伪造成功，也不会回退到本地目录；站点恢复原小说页面或提供新域名后，只需更新对应 JSON 规则，无需修改 Flutter。
+## 2026-07-30 APK 书源提取与兼容集成
+
+### 完成内容
+
+- 从 `D:\work\project\AP\base.apk` 可复现提取 `assets/bookSource.json`：
+  - 原始记录 1,142 条；
+  - 资源大小 1,939,268 bytes；
+  - APK SHA-256：`8d3194c81f07bd1ecb5faf241a8a0a16e70455535443cde11834c3d867429134`；
+  - 资源 SHA-256：`f9c9779c6828d3b8f46f8e24d32c09b427bd4e0e3ccd74e9a0b8df8ab035b2ec`。
+- 新增 `scripts/extract_book_sources.py`：
+  - 解析 `$ref`、生成稳定 ID、保留完整规则；
+  - 区分基础兼容、需脚本、需登录、音频、规则不完整和无效引用；
+  - 同时生成后端完整规则目录、审计报告和 Flutter 精简元数据资产。
+- 最终静态分类：
+  - `compatible_core`：925；
+  - `script_required`：169；
+  - `login_required`：33；
+  - `audio`：7；
+  - `incomplete`：7；
+  - `invalid_reference`：1。
+- APK 使用 360 加固，JADX 1.5.5 静态反编译只能看到壳代码；因此按完整规则资产与可观察行为重写兼容层，没有复制 APK 应用代码。
+- Flutter“我的 → 书源管理”：
+  - 集成 APK 书源目录，并以现有三个主规则源替换同域重复项；
+  - 支持名称、域名和原始分组搜索；
+  - 支持基础兼容、需脚本、需登录、规则不完整和音频筛选；
+  - 展示总数、已启用数和基础兼容数；
+  - 不兼容规则不能直接启用，并显示具体原因；
+  - 批量检测限制为 4 路并发，聚合搜索最多使用优先级最高的 12 个启用源；
+  - 首页“我的”只读取轻量书源计数，千级规则资产延迟到书源管理页加载。
+- Flutter 阅读链路已经接入 Legacy 后端接口：
+  - 搜索；
+  - 详情/目录；
+  - 章节正文；
+  - 健康检测。
+- 旧开发后端 `apps/api` 与实际生产后端 `unified_backend` 均补充规则目录及安全执行接口；生产部署资产位于 `app/api/v1/mnovel/legacy`，会随 Docker 镜像复制。
+- 安全边界包括逐次 DNS/IP 校验、私网拦截、重定向复核、请求超时、2 MB 响应上限、规则兼容分级和默认关闭。
+
+### 验证结果
+
+- APK 提取脚本：成功生成 1,142 条记录，分类总数一致。
+- `MNovel/apps/api`：
+  - Ruff：通过；
+  - Pytest：13 passed。
+- `unified_backend`：
+  - 本次改动文件 Ruff：通过；
+  - 全量 Pytest：57 passed，4 个既有依赖弃用警告；
+  - 全仓 Ruff 仍有 80 个既有历史问题，本次改动文件没有新增错误。
+- Flutter：
+  - Analyze：通过，0 issues；
+  - 除 `widget_test.dart` 外 28 项测试全部通过；
+  - `widget_test.dart` 中 3 个主导航测试仍因现有书城页面持续异步刷新导致 `pumpAndSettle` 超时，另外 6 项阅读器测试通过；该书城文件在本任务开始前已存在未提交改动，本次没有覆盖；
+  - Web release：构建成功；
+  - Android release APK：构建成功，约 75 MB。
+
+### 构建产物
+
+- Android：`apps/mobile/build/app/outputs/flutter-apk/app-release.apk`
+- Web：`apps/mobile/build/web`
+- APK 书源审计：`data/book_sources/audit.md`
+- 完整转换目录：`data/book_sources/legacy_sources.json`
+- Flutter 精简目录：`apps/mobile/assets/book_sources/legacy_sources.json`

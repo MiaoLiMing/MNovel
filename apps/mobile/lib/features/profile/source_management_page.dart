@@ -26,6 +26,23 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
   bool _loading = true;
   bool _editing = false;
   bool _testingAll = false;
+  String _query = '';
+  String _compatibilityFilter = 'all';
+
+  List<ContentSource> get _visibleSources {
+    final query = _query.trim().toLowerCase();
+    return _sources.where((source) {
+      final matchesQuery =
+          query.isEmpty ||
+          '${source.name} ${source.endpoint} ${source.group}'
+              .toLowerCase()
+              .contains(query);
+      final matchesCompatibility =
+          _compatibilityFilter == 'all' ||
+          source.compatibility == _compatibilityFilter;
+      return matchesQuery && matchesCompatibility;
+    }).toList(growable: false);
+  }
 
   @override
   void initState() {
@@ -43,6 +60,14 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
   }
 
   Future<void> _toggle(ContentSource source, bool enabled) async {
+    if (enabled &&
+        source.kind == SourceKind.legacy &&
+        source.compatibility != 'compatible_core') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(source.compatibilityReason)),
+      );
+      return;
+    }
     await _store.setEnabled(source.id, enabled);
     await _reload();
   }
@@ -96,6 +121,12 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
         '读取馆藏公开全文文件',
         '解析由统一后端完成，并过滤错误语言标注',
       ),
+      SourceKind.legacy => (
+        'APK Legacy 规则兼容层',
+        '兼容搜索、详情和章节目录的旧版选择器/JSONPath 规则',
+        '正文由后端受限执行器按需提取，限制域名、超时和响应大小',
+        source.compatibilityReason,
+      ),
       _ => ('未知', '未声明', '未声明', '未声明'),
     };
     await showDialog<void>(
@@ -111,6 +142,13 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
             _SourceDetailLine(label: '正文能力', value: chapter),
             _SourceDetailLine(label: '处理方式', value: policy),
             _SourceDetailLine(label: '服务地址', value: source.endpoint),
+            if (source.group.isNotEmpty)
+              _SourceDetailLine(label: '原始分组', value: source.group),
+            if (source.compatibility.isNotEmpty)
+              _SourceDetailLine(
+                label: '兼容等级',
+                value: source.compatibility,
+              ),
           ],
         ),
         actions: [
@@ -132,17 +170,37 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
 
   Future<void> _testAll() async {
     setState(() => _testingAll = true);
-    for (final source in _sources.where((source) => source.enabled)) {
-      await _testSource(source);
+    final candidates = _visibleSources
+        .where(
+          (source) =>
+              source.enabled &&
+              (source.kind != SourceKind.legacy ||
+                  source.compatibility == 'compatible_core'),
+        )
+        .toList(growable: false);
+    for (var offset = 0; offset < candidates.length; offset += 4) {
+      await Future.wait(candidates.skip(offset).take(4).map(_testSource));
       if (!mounted) return;
     }
     setState(() => _testingAll = false);
   }
 
-  Future<void> _reorder(int oldIndex, int newIndex) async {
-    final values = [..._sources];
-    final source = values.removeAt(oldIndex);
-    values.insert(newIndex, source);
+  Future<void> _reorderVisible(
+    List<ContentSource> visible,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    if (oldIndex < newIndex) newIndex--;
+    final reordered = [...visible];
+    final moved = reordered.removeAt(oldIndex);
+    reordered.insert(newIndex, moved);
+    final replacements = reordered.iterator;
+    final visibleIds = visible.map((source) => source.id).toSet();
+    final values = _sources.map((source) {
+      if (!visibleIds.contains(source.id)) return source;
+      replacements.moveNext();
+      return replacements.current;
+    }).toList();
     setState(() => _sources = values);
     await _store.saveOrder(values.map((item) => item.id).toList());
   }
@@ -351,7 +409,13 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    final visibleSources = _visibleSources;
+    final compatibleCount = _sources
+        .where((source) => source.compatibility == 'compatible_core')
+        .length;
+    final enabledCount = _sources.where((source) => source.enabled).length;
+    return Scaffold(
     appBar: AppBar(
       leading: IconButton(
         tooltip: '返回',
@@ -382,13 +446,56 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
         : Column(
             children: [
               Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                child: Column(
+                  children: [
+                    TextField(
+                      onChanged: (value) => setState(() => _query = value),
+                      decoration: InputDecoration(
+                        hintText: '搜索名称、域名或分组',
+                        prefixIcon: const Icon(Icons.search_rounded, size: 19),
+                        suffixText:
+                            '${_sources.length} 个 · 启用 $enabledCount · 兼容 $compatibleCount',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 32,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: [
+                          for (final option in const [
+                            ('all', '全部'),
+                            ('compatible_core', '基础兼容'),
+                            ('script_required', '需脚本'),
+                            ('login_required', '需登录'),
+                            ('incomplete', '规则不完整'),
+                            ('audio', '音频'),
+                          ])
+                            Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: ChoiceChip(
+                                label: Text(option.$2),
+                                selected: _compatibilityFilter == option.$1,
+                                onSelected: (_) => setState(
+                                  () => _compatibilityFilter = option.$1,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
                 padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
                 child: Row(
                   children: [
-                    const Expanded(
+                    Expanded(
                       child: Text(
-                        '长按拖动可调整顺序，点击名称检测书源',
-                        style: TextStyle(
+                        '当前显示 ${visibleSources.length} 个；点击名称查看规则能力',
+                        style: const TextStyle(
                           color: AppColors.tertiaryText,
                           fontSize: 9,
                         ),
@@ -411,17 +518,18 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
               Expanded(
                 child: ReorderableListView.builder(
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                  itemCount: _sources.length,
-                  onReorderItem: _reorder,
+                  itemCount: visibleSources.length,
+                  onReorderItem: (oldIndex, newIndex) =>
+                      _reorderVisible(visibleSources, oldIndex, newIndex),
                   buildDefaultDragHandles: false,
                   itemBuilder: (context, index) {
-                    final source = _sources[index];
+                    final source = visibleSources[index];
                     final health = _healthOverrides[source.id] ?? source.health;
                     final latency =
                         _latencyOverrides[source.id] ?? source.latencyMs;
                     final startsCustom =
                         !source.builtIn &&
-                        (index == 0 || _sources[index - 1].builtIn);
+                        (index == 0 || visibleSources[index - 1].builtIn);
                     return Column(
                       key: ValueKey(source.id),
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -429,7 +537,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                         if (index == 0)
                           const _SourceSectionLabel(
                             title: '内置小说源',
-                            subtitle: '三个来源均由统一规则引擎解析',
+                            subtitle: 'APK 规则目录与现有规则源统一管理',
                           ),
                         if (startsCustom)
                           _SourceSectionLabel(
@@ -482,7 +590,8 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
               ),
             ],
           ),
-  );
+    );
+  }
 }
 
 class _SourceRow extends StatelessWidget {

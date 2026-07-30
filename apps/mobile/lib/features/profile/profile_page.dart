@@ -39,7 +39,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _loadData() async {
     final shelf = await ShelfStore().listAll();
     final progress = await ReadingProgressStore().getAllProgress();
-    final sources = await SourceStore().list();
+    final sourceCount = await SourceStore().count();
     final offline = await OfflineLibraryStore().listBooks();
     final cacheSize = await _calculateCacheSize();
     if (!mounted) return;
@@ -56,7 +56,7 @@ class _ProfilePageState extends State<ProfilePage> {
         final ratio = (value['ratio'] as num?)?.toDouble() ?? 0;
         return sum + chapter * .08 + ratio * .6;
       });
-      _sourceCount = sources.length;
+      _sourceCount = sourceCount;
       _offlineCount = offline.length;
       _cacheSize = cacheSize;
       _loading = false;

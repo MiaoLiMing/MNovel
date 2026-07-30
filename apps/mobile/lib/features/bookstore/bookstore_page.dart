@@ -300,7 +300,7 @@ class _BookstorePageState extends State<BookstorePage> {
                         Expanded(
                           child: Text(
                             _data!.fromNetwork
-                                ? '内容由统一后端实时聚合 · 下拉可换一批'
+                                ? '下拉可换一批'
                                 : _data!.fromCache
                                 ? '当前网络不可用，展示最近一次聚合缓存'
                                 : '内容来自当前设备启用的自定义书源',

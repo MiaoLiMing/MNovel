@@ -1,3 +1,4 @@
+import asyncio
 import re
 import time
 from uuid import uuid4
@@ -29,6 +30,15 @@ from app.schemas.content import (
     TaxonomyResponse,
     UnitSummary,
 )
+from app.schemas.legacy_sources import (
+    LegacyBook,
+    LegacyChapter,
+    LegacyChapterContent,
+    LegacySource,
+    LegacySourceSummary,
+)
+from app.services.legacy_rule_engine import LegacyRuleEngine, LegacyRuleError
+from app.services.legacy_source_catalog import legacy_source_catalog
 from app.services.live_catalog import LiveCatalogService
 from app.services.source_guard import UnsafeSourceUrl, validate_public_source_url
 
@@ -41,6 +51,8 @@ def create_router(
     router = APIRouter()
     catalog = CatalogRepository()
     remote = live_catalog or LiveCatalogService()
+    legacy_catalog = legacy_source_catalog()
+    legacy_engine = LegacyRuleEngine()
     require_token = build_token_guard(access_token)
     chapter_titles = (
         "旧友",
@@ -86,6 +98,7 @@ def create_router(
             latency_ms=latency,
             base_url=base_url,
             built_in=bool(config.get("built_in")),
+            status=resolved_health,
         )
 
     @router.get("/health")
@@ -366,6 +379,107 @@ def create_router(
     def sources(store: Database = Depends(db)) -> list[SourceStatus]:
         return [present_source(item) for item in store.list_sources()]
 
+    @router.get(
+        "/sources/legacy/summary",
+        response_model=LegacySourceSummary,
+        dependencies=[Depends(require_token)],
+    )
+    def legacy_sources_summary() -> LegacySourceSummary:
+        return legacy_catalog.summary()
+
+    @router.get(
+        "/sources/legacy",
+        response_model=list[LegacySource],
+        dependencies=[Depends(require_token)],
+    )
+    def legacy_sources(
+        query: str = Query(default="", max_length=100),
+        compatibility: str = Query(default="", max_length=40),
+        group: str = Query(default="", max_length=80),
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=100, ge=1, le=200),
+    ) -> list[LegacySource]:
+        return legacy_catalog.list(
+            query=query,
+            compatibility=compatibility,
+            group=group,
+            offset=offset,
+            limit=limit,
+        )
+
+    @router.get(
+        "/sources/legacy/{source_id}",
+        response_model=LegacySource,
+        dependencies=[Depends(require_token)],
+    )
+    def legacy_source(source_id: str) -> LegacySource:
+        source = legacy_catalog.get(source_id)
+        if source is None:
+            raise HTTPException(status_code=404, detail="APK 书源不存在")
+        return source
+
+    @router.get(
+        "/sources/legacy/{source_id}/search",
+        response_model=list[LegacyBook],
+        dependencies=[Depends(require_token)],
+    )
+    async def search_legacy_source(
+        source_id: str,
+        query: str = Query(min_length=1, max_length=80),
+        page: int = Query(default=1, ge=1, le=100),
+    ) -> list[LegacyBook]:
+        source = legacy_catalog.get(source_id)
+        if source is None:
+            raise HTTPException(status_code=404, detail="APK 书源不存在")
+        try:
+            return await legacy_engine.search(source, query, page)
+        except (LegacyRuleError, UnsafeSourceUrl, httpx.HTTPError) as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @router.get(
+        "/sources/legacy/{source_id}/chapters",
+        response_model=list[LegacyChapter],
+        dependencies=[Depends(require_token)],
+    )
+    async def legacy_source_chapters(
+        source_id: str,
+        detail_url: str = Query(min_length=8, max_length=2048),
+    ) -> list[LegacyChapter]:
+        source = legacy_catalog.get(source_id)
+        if source is None:
+            raise HTTPException(status_code=404, detail="APK 书源不存在")
+        try:
+            return await legacy_engine.chapters(source, detail_url)
+        except (LegacyRuleError, UnsafeSourceUrl, httpx.HTTPError) as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @router.get(
+        "/sources/legacy/{source_id}/chapter",
+        response_model=LegacyChapterContent,
+        dependencies=[Depends(require_token)],
+    )
+    async def legacy_source_chapter(
+        source_id: str,
+        chapter_url: str = Query(min_length=8, max_length=2048),
+        title: str = Query(default="", max_length=200),
+    ) -> LegacyChapterContent:
+        source = legacy_catalog.get(source_id)
+        if source is None:
+            raise HTTPException(status_code=404, detail="APK 书源不存在")
+        try:
+            paragraphs = await legacy_engine.chapter_content(
+                source,
+                chapter_url,
+                title=title,
+            )
+        except (LegacyRuleError, UnsafeSourceUrl, httpx.HTTPError) as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return LegacyChapterContent(
+            title=title or "正文",
+            paragraphs=paragraphs,
+            source_id=source.id,
+        )
+
     @router.post(
         "/sources",
         response_model=SourceStatus,
@@ -477,7 +591,75 @@ def create_router(
     ) -> SourceStatus:
         item = store.get_source(source_id)
         if item is None:
-            raise HTTPException(status_code=404, detail="内容源不存在")
+            legacy = legacy_catalog.get(source_id)
+            if legacy is None:
+                raise HTTPException(status_code=404, detail="内容源不存在")
+            if legacy.compatibility != "compatible_core":
+                return SourceStatus(
+                    id=legacy.id,
+                    name=legacy.name,
+                    kind="legacy",
+                    enabled=legacy.enabled,
+                    priority=legacy.priority,
+                    health="configuration_required",
+                    status="configuration_required",
+                    base_url=legacy.base_url,
+                    built_in=True,
+                    message=legacy.compatibility_reason,
+                )
+            started = time.perf_counter()
+            try:
+                async with asyncio.timeout(7):
+                    books = await legacy_engine.search(legacy, "红楼梦", 1)
+                    if not books:
+                        raise LegacyRuleError("搜索规则未返回结果")
+                    chapters = await legacy_engine.chapters(
+                        legacy,
+                        books[0].detail_url,
+                    )
+                    if not chapters:
+                        raise LegacyRuleError("目录规则未返回章节")
+                    paragraphs = await legacy_engine.chapter_content(
+                        legacy,
+                        chapters[0].url,
+                        title=chapters[0].title,
+                    )
+                    if not paragraphs:
+                        raise LegacyRuleError("正文规则未返回内容")
+                latency = int((time.perf_counter() - started) * 1000)
+                return SourceStatus(
+                    id=legacy.id,
+                    name=legacy.name,
+                    kind="legacy",
+                    enabled=legacy.enabled,
+                    priority=legacy.priority,
+                    health="healthy",
+                    status="healthy",
+                    latency_ms=latency,
+                    base_url=legacy.base_url,
+                    built_in=True,
+                    message="搜索、目录和正文链路正常",
+                )
+            except (
+                TimeoutError,
+                LegacyRuleError,
+                UnsafeSourceUrl,
+                httpx.HTTPError,
+            ) as exc:
+                latency = int((time.perf_counter() - started) * 1000)
+                return SourceStatus(
+                    id=legacy.id,
+                    name=legacy.name,
+                    kind="legacy",
+                    enabled=legacy.enabled,
+                    priority=legacy.priority,
+                    health="error",
+                    status="error",
+                    latency_ms=latency,
+                    base_url=legacy.base_url,
+                    built_in=True,
+                    message="检测超时" if isinstance(exc, TimeoutError) else str(exc),
+                )
         config = item["config"]
         base_url = str(config.get("base_url", ""))
         if not base_url:
