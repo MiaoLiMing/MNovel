@@ -145,6 +145,51 @@ void main() {
     expect(items.single.sourceName, '自定义测试源');
   });
 
+  test('搜索使用后端多书源聚合接口并保留来源', () async {
+    SharedPreferences.setMockInitialValues({});
+    final requestedPaths = <String>[];
+    final repository = ContentRepository(
+      sourceStore: _MockSourceStore(const []),
+      client: MockClient((request) async {
+        requestedPaths.add(request.url.path);
+        if (request.url.path.endsWith('/sources/legacy/search')) {
+          return http.Response(
+            jsonEncode([
+              {
+                'id': 'legado-one:book-1',
+                'title': '诡秘之主',
+                'author': '爱潜水的乌贼',
+                'detail_url': 'https://one.example/book/1',
+                'source_id': 'legado-one',
+                'source_name': '来源一',
+              },
+              {
+                'id': 'legado-two:book-2',
+                'title': '诡秘之主',
+                'author': '爱潜水的乌贼',
+                'detail_url': 'https://two.example/book/2',
+                'source_id': 'legado-two',
+                'source_name': '来源二',
+              },
+            ]),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response('[]', 200);
+      }),
+    );
+
+    final items = await repository.discover(
+      ContentChannel.novel,
+      query: '爱潜水的乌贼',
+    );
+
+    expect(requestedPaths, contains(endsWith('/sources/legacy/search')));
+    expect(items, hasLength(2));
+    expect(items.map((item) => item.sourceName), containsAll(['来源一', '来源二']));
+  });
+
   test('书城首页从 Gutendex 真实来源动态构建', () async {
     SharedPreferences.setMockInitialValues({});
     const source = ContentSource(

@@ -13,13 +13,8 @@ class SourceStore {
   static const _enabledKey = 'content.sources.enabled.v2';
   static const _orderKey = 'content.sources.order.v1';
   static List<ContentSource>? _legacyCache;
-  // 1,142 条 APK 记录中有 4 条与三个主规则源同域，列表以主规则源替换。
-  static const _bundledVisibleCount = 1141;
-
   Future<int> count() async {
-    final prefs = await SharedPreferences.getInstance();
-    return _bundledVisibleCount +
-        _decodeCustom(prefs.getString(_customKey)).length;
+    return (await list()).length;
   }
 
   Future<List<ContentSource>> list() async {

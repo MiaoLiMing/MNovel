@@ -238,12 +238,27 @@ class ContentRepository {
       items = const [];
     }
 
+    var aggregateReached = false;
+    var aggregateItems = const <ContentItem>[];
+    if (query.trim().isNotEmpty) {
+      try {
+        aggregateItems = await _loadAggregatedLegacySearch(
+          query: query,
+          page: page,
+        );
+        aggregateReached = true;
+      } catch (_) {}
+    }
     final sourceItems = await _loadEnabledSourceCatalog(
       query: query,
       page: page,
       includePublicFallback: !reachedBackend,
+      includeBundledLegacy: !aggregateReached,
     );
-    return _mergeItems([...sourceItems, ...items]);
+    final combined = [...aggregateItems, ...sourceItems, ...items];
+    return query.trim().isEmpty
+        ? _mergeItems(combined)
+        : _mergeSearchItems(combined);
   }
 
   Future<SearchMeta> searchMeta() async {
@@ -704,6 +719,7 @@ class ContentRepository {
     String query = '',
     int page = 1,
     bool includePublicFallback = false,
+    bool includeBundledLegacy = true,
   }) async {
     final sources = await _sourceStore.list();
     final enabled = sources.where((source) => source.enabled).toList()
@@ -717,7 +733,8 @@ class ContentRepository {
                       source.kind == SourceKind.internetArchive)) ||
               source.kind == SourceKind.json ||
               source.kind == SourceKind.js ||
-              source.kind == SourceKind.legacy,
+              (source.kind == SourceKind.legacy &&
+                  (includeBundledLegacy || !source.builtIn)),
         )
         .toList(growable: false);
     const windowSize = 12;
@@ -1164,8 +1181,43 @@ class ContentRepository {
         .toList(growable: false);
   }
 
+  Future<List<ContentItem>> _loadAggregatedLegacySearch({
+    required String query,
+    required int page,
+  }) async {
+    final values = await _getList('/sources/legacy/search', {
+      'query': query.trim(),
+      'page': '$page',
+      'limit': '60',
+    }, const Duration(seconds: 22));
+    return values
+        .map((value) {
+          final sourceId = value['source_id']?.toString() ?? '';
+          final sourceName = value['source_name']?.toString() ?? '未知书源';
+          return ContentItem(
+            id: value['id']?.toString() ?? '',
+            title: value['title']?.toString() ?? '未命名小说',
+            creator: value['author']?.toString() ?? '未知作者',
+            category: value['kind']?.toString() ?? '网络小说',
+            summary: value['introduction']?.toString() ?? '',
+            coverAsset: value['cover']?.toString() ?? '',
+            popularity: '来自 $sourceName',
+            progress: 0,
+            episodeCount: 0,
+            sourceId: sourceId,
+            sourceName: sourceName,
+            isLive: true,
+            latestChapter: value['latest_chapter']?.toString() ?? '',
+            sourceLabels: [sourceName],
+          );
+        })
+        .where((item) => item.id.isNotEmpty && item.sourceId.isNotEmpty)
+        .toList(growable: false);
+  }
+
   bool _isLegacyItem(ContentItem item) =>
-      item.sourceId.startsWith('legacy-') &&
+      (item.sourceId.startsWith('legacy-') ||
+          item.sourceId.startsWith('legado-')) &&
       item.id.startsWith('${item.sourceId}:');
 
   String _legacyDetailUrl(ContentItem item) {
@@ -1245,6 +1297,19 @@ class ContentRepository {
       merged[key] = previous.copyWith(sourceLabels: labels);
     }
     return merged.values.toList(growable: false);
+  }
+
+  List<ContentItem> _mergeSearchItems(List<ContentItem> items) {
+    final bySource = <String, ContentItem>{};
+    for (final item in items) {
+      final key = [
+        item.sourceId,
+        _normalizeTitle(item.title),
+        _normalizeTitle(item.creator),
+      ].join('::');
+      bySource.putIfAbsent(key, () => item);
+    }
+    return bySource.values.toList(growable: false);
   }
 
   Future<void> _writeHomeCache(String channel, List<ContentItem> items) async {
