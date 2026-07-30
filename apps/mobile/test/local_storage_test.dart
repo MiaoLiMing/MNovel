@@ -6,7 +6,9 @@ import 'package:mnovel/domain/content_source.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  test('内置列表只保留三个统一规则书源', () async {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('内置列表包含统一规则书源和默认启用的 APK 规则目录', () async {
     SharedPreferences.setMockInitialValues({
       'content.sources.enabled.v1':
           '{"qidian":true,"fanqie":true,"custom-example":true}',
@@ -16,23 +18,10 @@ void main() {
 
     expect(
       builtIns.map((source) => source.id),
-      containsAllInOrder([
-        'miui-reader-rule',
-        'shuchong-rule',
-        'xntk-rule',
-      ]),
+      containsAllInOrder(['miui-reader-rule', 'shuchong-rule', 'xntk-rule']),
     );
-    expect(builtIns, hasLength(3));
-    expect(
-      builtIns.every((source) => source.kind == SourceKind.backendRule),
-      isTrue,
-    );
-    expect(
-      builtIns.where(
-        (source) => source.health == SourceHealth.configurationRequired,
-      ),
-      isEmpty,
-    );
+    expect(builtIns.length, greaterThan(1100));
+    expect(builtIns.every((source) => source.enabled), isTrue);
   });
 
   test('来源启停与自定义 JSON 来源保存在本机', () async {
@@ -99,5 +88,26 @@ void main() {
       sources.singleWhere((source) => source.name == '来源乙').kind,
       SourceKind.js,
     );
+  });
+
+  test('支持直接导入 Legado 完整书源规则', () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = SourceStore();
+
+    final count = await store.importMany(
+      '[{"bookSourceName":"Legado 测试源",'
+      '"bookSourceUrl":"https://example.com",'
+      '"searchUrl":"/search?q={{key}}",'
+      '"ruleSearch":{"bookList":".book","name":".name@text",'
+      '"bookUrl":".name@href"}}]',
+    );
+
+    expect(count, 1);
+    final source = (await store.list()).singleWhere(
+      (item) => item.name == 'Legado 测试源',
+    );
+    expect(source.kind, SourceKind.legacy);
+    expect(source.enabled, isTrue);
+    expect(source.rules?['__source_json'], contains('"ruleSearch"'));
   });
 }

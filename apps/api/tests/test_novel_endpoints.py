@@ -3,10 +3,7 @@ def test_catalog_discovery_and_reader_contract(client):
     assert home.status_code == 200
     home_data = home.json()
     assert home_data["featured"]["channel"] == "novel"
-    assert {section["id"] for section in home_data["sections"]} == {
-        "editors-pick",
-        "latest",
-    }
+    assert home_data["sections"] == []
 
     taxonomy = client.get("/api/v1/mnovel/taxonomy")
     assert taxonomy.status_code == 200
@@ -14,7 +11,6 @@ def test_catalog_discovery_and_reader_contract(client):
         "category",
         "status",
         "word_count",
-        "source",
     }
 
     content_id = home_data["featured"]["id"]
@@ -42,8 +38,8 @@ def test_catalog_discovery_and_reader_contract(client):
     assert [unit["index"] for unit in units.json()] == [0, 1, 2]
 
     chapter = client.get(f"/api/v1/mnovel/content/{content_id}/chapters/0")
-    assert chapter.status_code == 200
-    assert chapter.json()["paragraphs"]
+    assert chapter.status_code == 424
+    assert "没有可用正文" in chapter.json()["detail"]
 
 
 def test_shelf_progress_history_and_summary(client):

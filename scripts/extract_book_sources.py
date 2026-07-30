@@ -1,7 +1,7 @@
 """从用户提供的 APK 中提取并规范化旧版阅读书源。
 
 该脚本只读取 APK 的 assets/bookSource.json，不反编译或复制应用代码。
-输出是可审计的 MNovel Legacy 规则目录，默认禁用所有未经检测的第三方源。
+输出是可审计的 MNovel Legacy 规则目录；所有来源默认启用，运行时按有界窗口调度。
 """
 
 from __future__ import annotations
@@ -46,6 +46,11 @@ def parse_args() -> argparse.Namespace:
         "--mobile-output",
         type=Path,
         help="可选：写入不含执行规则的 Flutter 书源目录",
+    )
+    parser.add_argument(
+        "--backend-output",
+        type=Path,
+        help="可选：同步写入后端使用的完整 Legacy 规则目录",
     )
     return parser.parse_args()
 
@@ -170,7 +175,7 @@ def normalize_item(item: dict[str, Any], index: int) -> dict[str, Any]:
         "base_url": clean_text(item.get("bookSourceUrl")),
         "group": clean_text(item.get("bookSourceGroup")) or "未分组",
         "source_type": clean_text(item.get("bookSourceType")) or "NOVEL",
-        "enabled": False,
+        "enabled": True,
         "original_enabled": bool(item.get("enable", True)),
         "priority": int(item.get("weight") or 0),
         "serial_number": int(item.get("serialNumber") or 0),
@@ -240,7 +245,7 @@ def audit_markdown(audit: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "说明：所有 APK 第三方源首次均保持关闭；只有完整链路检测通过后才应启用。",
+            "说明：所有 APK 第三方源默认启用；兼容性分类只描述规则能力，不再阻止用户使用或检测。",
             "",
             "## 静态分析限制",
             "",
@@ -268,6 +273,12 @@ def main() -> None:
         json.dumps(catalog, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    if args.backend_output:
+        args.backend_output.parent.mkdir(parents=True, exist_ok=True)
+        args.backend_output.write_text(
+            json.dumps(catalog, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
     (args.output / "audit.json").write_text(
         json.dumps(audit, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -287,12 +298,8 @@ def main() -> None:
                 "group": source["group"],
                 "compatibility": source["compatibility"],
                 "compatibility_reason": source["compatibility_reason"],
-                "enabled": False,
-                "health": (
-                    "unknown"
-                    if source["compatibility"] == "compatible_core"
-                    else "configurationRequired"
-                ),
+                "enabled": True,
+                "health": "unknown",
                 "priority": source["priority"],
                 "built_in": True,
                 "kind": "legacy",

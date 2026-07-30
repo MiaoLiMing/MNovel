@@ -35,13 +35,13 @@ void main() {
       expect(
         sources
             .where((source) => source.kind == SourceKind.legacy)
-            .every((source) => !source.enabled),
+            .every((source) => source.enabled),
         isTrue,
       );
     },
   );
 
-  test('persists a legacy source enable override', () async {
+  test('persists a legacy source disable override', () async {
     final store = SourceStore();
     final source = (await store.list()).firstWhere(
       (item) =>
@@ -49,9 +49,23 @@ void main() {
           item.compatibility == 'compatible_core',
     );
 
-    await store.setEnabled(source.id, true);
+    await store.setEnabled(source.id, false);
     final reloaded = await SourceStore().list();
 
-    expect(reloaded.firstWhere((item) => item.id == source.id).enabled, isTrue);
+    expect(
+      reloaded.firstWhere((item) => item.id == source.id).enabled,
+      isFalse,
+    );
+  });
+
+  test('ignores the retired v1 disabled defaults', () async {
+    SharedPreferences.setMockInitialValues({
+      'content.sources.enabled.v1': '{"miui-reader-rule":false}',
+    });
+
+    final source = (await SourceStore().list()).first;
+
+    expect(source.id, 'miui-reader-rule');
+    expect(source.enabled, isTrue);
   });
 }

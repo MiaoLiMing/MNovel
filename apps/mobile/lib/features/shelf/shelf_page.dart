@@ -132,43 +132,10 @@ class _ShelfPageState extends State<ShelfPage> {
                     item: item,
                     progress: item.progress,
                     onTap: () => _open(item),
-                    trailing: _UnreadBadge(
-                      count: index == 0
-                          ? 9
-                          : index == 1
-                          ? 3
-                          : 0,
-                    ),
                   );
                 },
                 separatorBuilder: (_, _) =>
                     const Divider(height: 1, color: AppColors.divider),
-              ),
-            ),
-          if (!_loading && _items.isNotEmpty)
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
-              sliver: SliverList.list(
-                children: [
-                  const SectionTitle(title: '最近更新'),
-                  const SizedBox(height: 8),
-                  ..._items.reversed
-                      .take(2)
-                      .map(
-                        (item) => NovelListRow(
-                          item: item,
-                          compact: true,
-                          onTap: () => _open(item),
-                          trailing: const Text(
-                            '2天前',
-                            style: TextStyle(
-                              color: AppColors.tertiaryText,
-                              fontSize: 10,
-                            ),
-                          ),
-                        ),
-                      ),
-                ],
               ),
             ),
           const SliverToBoxAdapter(child: SizedBox(height: 10)),
@@ -328,36 +295,6 @@ class _RecentReadingCard extends StatelessWidget {
       ),
     ),
   );
-}
-
-class _UnreadBadge extends StatelessWidget {
-  const _UnreadBadge({required this.count});
-
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    if (count <= 0) {
-      return const SizedBox(width: 20);
-    }
-    return Container(
-      width: 20,
-      height: 20,
-      alignment: Alignment.center,
-      decoration: const BoxDecoration(
-        color: AppColors.coral,
-        shape: BoxShape.circle,
-      ),
-      child: Text(
-        '$count',
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 9,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
 }
 
 class _EmptyShelf extends StatelessWidget {

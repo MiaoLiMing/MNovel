@@ -114,7 +114,6 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
         .where((value) => value.item.id == _item.id)
         .firstOrNull;
     if (!mounted) return;
-    final previewOnly = _selectedSource == '内置试读';
     final selected = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -131,19 +130,12 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
               ),
             ),
             const Divider(height: 1),
-            if (previewOnly)
-              const ListTile(
-                leading: Icon(Icons.info_outline_rounded),
-                title: Text('当前为内置试读'),
-                subtitle: Text('只提供首章示例。下载更多章节前，请先配置或切换可用书源。'),
-              ),
-            if (previewOnly)
-              ListTile(
-                leading: const Icon(Icons.download_outlined),
-                title: const Text('下载试读章节'),
-                onTap: () => Navigator.pop(sheetContext, '1'),
-              ),
-            if (!previewOnly) ...[
+            ListTile(
+              leading: const Icon(Icons.download_outlined),
+              title: const Text('下载首章'),
+              onTap: () => Navigator.pop(sheetContext, '1'),
+            ),
+            ...[
               ListTile(
                 leading: const Icon(Icons.looks_two_outlined),
                 title: const Text('下载前 20 章'),

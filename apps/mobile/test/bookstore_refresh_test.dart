@@ -3,9 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mnovel/data/content_repository.dart';
-import 'package:mnovel/data/curated_catalog.dart';
 import 'package:mnovel/features/bookstore/bookstore_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'fixtures/demo_repository.dart';
 
 class _RefreshRepository extends ContentRepository {
   int calls = 0;
@@ -14,10 +15,10 @@ class _RefreshRepository extends ContentRepository {
   Future<HomeData> home({String channel = '推荐'}) async {
     calls += 1;
     return HomeData(
-      featured: curatedCatalog[1],
-      carousel: curatedCatalog.take(4).toList(),
-      editorsPick: curatedCatalog.skip(2).take(4).toList(),
-      latest: curatedCatalog.reversed.take(4).toList(),
+      featured: DemoRepository.items.first,
+      carousel: DemoRepository.items,
+      editorsPick: DemoRepository.items,
+      latest: DemoRepository.items,
     );
   }
 }

@@ -124,3 +124,17 @@
 - [x] 补充后端与 Flutter 测试
 - [x] 执行 Ruff、Pytest、Flutter Analyze/Test/Web/APK 验证
 - [x] 更新 `walkthrough.md`
+
+## 已完成：假数据清零、书源默认启用与 Legado 规则引擎升级（2026-07-30）
+
+- [x] 书架、搜索历史及生产目录彻底移除演示数据和本地兜底
+- [x] 清理旧开发后端的示例小说目录
+- [x] 1,142 条 APK 书源和新增 Legado 3 格式导入源默认全部启用
+- [x] 升级启用状态存储并迁移旧版默认关闭值
+- [x] 取消兼容等级开关限制并完善批量检测
+- [x] 区分连接、超时、TLS、HTTP、规则、登录及 WebView 错误
+- [x] 新增隔离 JVM sidecar，支持旧平铺规则与 Legado 3 嵌套规则
+- [x] 接入 jsoup、Rhino、Jayway JsonPath 与有界 HTTP/Cookie 执行
+- [x] 补充 Flutter、FastAPI、sidecar 回归和安全测试
+- [x] 执行 Analyze、Flutter Test、Pytest、Ruff、sidecar 测试及 Android 构建
+- [x] 更新 `walkthrough.md`

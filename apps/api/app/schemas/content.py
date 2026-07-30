@@ -51,7 +51,7 @@ class HomeSection(BaseModel):
 
 
 class HomeResponse(BaseModel):
-    featured: ContentSummary
+    featured: ContentSummary | None
     carousel: list[ContentSummary]
     sections: list[HomeSection]
 

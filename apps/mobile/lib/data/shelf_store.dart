@@ -3,11 +3,20 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../domain/content.dart';
-import 'curated_catalog.dart';
 import 'reading_progress_store.dart';
 
 class ShelfStore {
   static const _key = 'shelf.items.v1';
+  static const _retiredDemoIds = <String>{
+    'novel-mystery-lord',
+    'novel-fate-ring',
+    'novel-sword-arrival',
+    'novel-weird-immortal',
+    'novel-night-guard',
+    'novel-red-heart',
+    'novel-chaotic-era',
+    'novel-judge',
+  };
   final _progressStore = ReadingProgressStore();
 
   Future<List<ContentItem>> list(ContentChannel channel) async {
@@ -51,16 +60,20 @@ class ShelfStore {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_key);
     if (raw == null) {
-      final initial = curatedCatalog.take(4).toList(growable: false);
-      await _write(initial);
-      return initial;
+      await prefs.setString(_key, '[]');
+      return [];
     }
     if (raw.isEmpty) return [];
     try {
       final values = jsonDecode(raw) as List<dynamic>;
-      return values
+      final items = values
           .map((value) => ContentItem.fromJson(value as Map<String, dynamic>))
+          .where((item) => !_retiredDemoIds.contains(item.id))
           .toList();
+      if (items.length != values.length) {
+        await _write(items);
+      }
+      return items;
     } catch (_) {
       return [];
     }

@@ -46,11 +46,17 @@ class _SearchPageState extends State<SearchPage> {
   Future<void> _initialize() async {
     final prefs = await SharedPreferences.getInstance();
     final rawHistory = prefs.getString(_historyKey);
-    final recent = rawHistory == null
-        ? const ['诡秘之主', '剑来', '道诡异仙', '宿命之环']
-        : (jsonDecode(rawHistory) as List<dynamic>)
-              .map((value) => value.toString())
-              .toList(growable: false);
+    var recent = const <String>[];
+    if (rawHistory != null && rawHistory.isNotEmpty) {
+      try {
+        recent = (jsonDecode(rawHistory) as List<dynamic>)
+            .map((value) => value.toString())
+            .where((value) => value.trim().isNotEmpty)
+            .toList(growable: false);
+      } catch (_) {
+        await prefs.setString(_historyKey, '[]');
+      }
+    }
     final meta = await _repository.searchMeta();
     if (!mounted) return;
     setState(() {

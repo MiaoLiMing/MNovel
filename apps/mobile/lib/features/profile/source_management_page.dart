@@ -62,14 +62,6 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
   }
 
   Future<void> _toggle(ContentSource source, bool enabled) async {
-    if (enabled &&
-        source.kind == SourceKind.legacy &&
-        source.compatibility != 'compatible_core') {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(source.compatibilityReason)));
-      return;
-    }
     await _store.setEnabled(source.id, enabled);
     await _reload();
   }
@@ -92,7 +84,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
   }
 
   Future<void> _showSourceDetails(ContentSource source) async {
-    if (!source.builtIn) {
+    if (!source.builtIn && source.kind != SourceKind.legacy) {
       await _showEditor(source: source);
       return;
     }
@@ -168,12 +160,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
   Future<void> _testAll() async {
     setState(() => _testingAll = true);
     final candidates = _visibleSources
-        .where(
-          (source) =>
-              source.enabled &&
-              (source.kind != SourceKind.legacy ||
-                  source.compatibility == 'compatible_core'),
-        )
+        .where((source) => source.enabled)
         .toList(growable: false);
     for (var offset = 0; offset < candidates.length; offset += 4) {
       await Future.wait(candidates.skip(offset).take(4).map(_testSource));
@@ -562,7 +549,9 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
                             onTap: () => _showSourceDetails(source),
                             onTest: () => _testSource(source),
                             onToggle: (value) => _toggle(source, value),
-                            onEdit: source.builtIn
+                            onEdit:
+                                source.builtIn ||
+                                    source.kind == SourceKind.legacy
                                 ? null
                                 : () => _showEditor(source: source),
                             onDelete: source.builtIn

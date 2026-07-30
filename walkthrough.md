@@ -369,3 +369,38 @@ Android Release APK：
 - APK 书源审计：`data/book_sources/audit.md`
 - 完整转换目录：`data/book_sources/legacy_sources.json`
 - Flutter 精简目录：`apps/mobile/assets/book_sources/legacy_sources.json`
+
+## 2026-07-30 假数据清零、全书源默认启用与 Legado JVM 运行时
+
+### 最终结果
+
+- 首次安装的书架与最近搜索均为空，不再写入或显示演示小说。
+- 升级用户本地残留的 8 个旧演示书目会在读取书架时自动删除，真实收藏与进度保留。
+- 删除移动端内置试读正文、假章节名、假未读数、假更新时间及开发 API 的硬编码小说目录。
+- 1,142 条 APK 规则资产全部标记为启用和未检测；启用状态使用 `v2` 存储，旧 `v1` 默认关闭值不再污染新目录。
+- 取消旧版兼容等级对开关和批量检测的限制。所有已启用来源都有资格参与请求；运行时以 12 个为一组轮转，避免千级并发。
+- Flutter 可直接导入当前 Legado 完整规则 JSON，并将规则提交给后端 JVM 运行时。
+
+### 规则运行时
+
+- 在 `unified_backend/services/legado-runtime` 新增 Java 21 sidecar。
+- 同时归一化旧 APK 平铺字段和当前 Legado 嵌套的 `ruleSearch`、`ruleToc`、`ruleContent`。
+- 使用 Jsoup、Jayway JsonPath、Rhino 与 OkHttp 实现搜索、目录、正文的核心执行链。
+- Rhino 禁止访问 Java 类，脚本限制 500 ms；HTTP 限制公共 HTTP(S) 地址、3 次重定向、连接/读取超时、2 MiB 响应和 64 个 Cookie。
+- 连接、超时、TLS、HTTP、规则、登录和 WebView 依赖均返回可读错误，不再显示空白的 `All connection attempts failed`。
+- FastAPI 在配置 `MNOVEL_LEGADO_RUNTIME_URL` 后自动委派，生产 Compose 已加入 sidecar 和健康检查。
+
+### 验证
+
+- Flutter Analyze：通过，0 issues。
+- Flutter 全量测试：43 passed。
+- Flutter Android release：构建成功，78,650,309 bytes。
+- APK SHA-256：`2DEF3DE4CE1B7F98DA46FC82BA250CD9F9935B99F0CC5AAE8C64E54ABE93B8AF`。
+- 旧开发 API：13 passed，Ruff 通过。
+- `unified_backend`：57 passed（4 个既有依赖弃用警告），本次 MNovel 文件 Ruff 通过。
+- JVM sidecar：Maven `test package` 成功，5 tests passed。
+- 生产 Compose：YAML 解析通过。
+
+### 能力边界
+
+本次交付的是可部署的 Legado 核心兼容运行时，不宣称已达到 Legado 全协议等价。依赖交互式登录、验证码或 WebView 的来源会明确标为对应能力要求；复杂 JS 主机 API、字体解密及站点专用反爬仍需按真实失败样本逐步补齐。

@@ -8,7 +8,9 @@ import '../domain/content_source.dart';
 
 class SourceStore {
   static const _customKey = 'content.sources.custom.v1';
-  static const _enabledKey = 'content.sources.enabled.v1';
+  // v1 was generated while bundled sources defaulted to disabled. A new key
+  // prevents those historical defaults from silently disabling a fresh catalog.
+  static const _enabledKey = 'content.sources.enabled.v2';
   static const _orderKey = 'content.sources.order.v1';
   static List<ContentSource>? _legacyCache;
   // 1,142 条 APK 记录中有 4 条与三个主规则源同域，列表以主规则源替换。
@@ -25,9 +27,8 @@ class SourceStore {
     final enabledOverrides = _decodeEnabled(prefs.getString(_enabledKey));
     final primaryBuiltIns = builtInContentSources
         .map(
-          (source) => source.copyWith(
-            enabled: enabledOverrides[source.id] ?? source.enabled,
-          ),
+          (source) =>
+              source.copyWith(enabled: enabledOverrides[source.id] ?? true),
         )
         .toList();
     final primaryHosts = primaryBuiltIns
@@ -43,9 +44,8 @@ class SourceStore {
           ),
         )
         .map(
-          (source) => source.copyWith(
-            enabled: enabledOverrides[source.id] ?? source.enabled,
-          ),
+          (source) =>
+              source.copyWith(enabled: enabledOverrides[source.id] ?? true),
         );
     final builtIns = [...primaryBuiltIns, ...legacy];
     final custom = _decodeCustom(prefs.getString(_customKey));
@@ -124,15 +124,19 @@ class SourceStore {
 
   Future<void> addCustom(ContentSource source) async {
     if (source.builtIn ||
-        (source.kind != SourceKind.json && source.kind != SourceKind.js)) {
-      throw const FormatException('只能添加 JSON 或 JS 规则自定义来源');
+        (source.kind != SourceKind.json &&
+            source.kind != SourceKind.js &&
+            source.kind != SourceKind.legacy)) {
+      throw const FormatException('只能添加 JSON、JS 或 Legado 规则自定义来源');
     }
     final endpoint = source.endpoint.trim();
     final isJsonText = endpoint.startsWith('{') || endpoint.startsWith('[');
     if (!isJsonText) {
       final uri = Uri.tryParse(endpoint);
-      if (uri == null || !uri.isScheme('https')) {
-        throw const FormatException('来源地址必须是有效的 HTTPS URL 或 JSON 格式文本');
+      if (uri == null ||
+          (!uri.isScheme('https') &&
+              !(source.kind == SourceKind.legacy && uri.isScheme('http')))) {
+        throw const FormatException('来源地址必须是有效的 HTTPS URL；Legado 规则也兼容 HTTP');
       }
     } else {
       try {
@@ -167,9 +171,30 @@ class SourceStore {
       try {
         final value = Map<String, dynamic>.from(values[index] as Map);
         if (value.containsKey('bookSourceUrl')) {
-          throw const FormatException(
-            '检测到阅读/Legado 完整规则；当前仅支持 MNovel JSON/JS 清单，请先转换规则',
+          final name = value['bookSourceName']?.toString().trim() ?? '';
+          final endpoint = value['bookSourceUrl']?.toString().trim() ?? '';
+          if (name.isEmpty || endpoint.isEmpty) {
+            throw const FormatException('Legado 规则缺少书源名称或地址');
+          }
+          await addCustom(
+            ContentSource(
+              id: 'legacy-import-${DateTime.now().microsecondsSinceEpoch}-$index',
+              name: name,
+              description: 'Legado 完整规则 · JVM 兼容运行时',
+              channels: const {ContentChannel.novel},
+              kind: SourceKind.legacy,
+              endpoint: endpoint,
+              enabled: value['enabled'] as bool? ?? true,
+              priority: (value['weight'] as num?)?.toInt() ?? 50,
+              health: SourceHealth.unknown,
+              group: value['bookSourceGroup']?.toString() ?? '',
+              compatibility: 'jvm_runtime',
+              compatibilityReason: '由隔离的 JVM 规则运行时解析',
+              rules: {'__source_json': jsonEncode(value)},
+            ),
           );
+          imported++;
+          continue;
         }
         final kindName =
             value['kind']?.toString() ?? value['type']?.toString() ?? 'json';

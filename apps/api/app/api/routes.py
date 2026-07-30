@@ -47,25 +47,14 @@ def create_router(
     database: Database,
     live_catalog: LiveCatalogService | None = None,
     access_token: str = "",
+    catalog_repository: CatalogRepository | None = None,
 ) -> APIRouter:
     router = APIRouter()
-    catalog = CatalogRepository()
+    catalog = catalog_repository or CatalogRepository()
     remote = live_catalog or LiveCatalogService()
     legacy_catalog = legacy_source_catalog()
     legacy_engine = LegacyRuleEngine()
     require_token = build_token_guard(access_token)
-    chapter_titles = (
-        "旧友",
-        "交谈",
-        "计划",
-        "邀请",
-        "准备",
-        "启程",
-        "风暴前夕",
-        "选择",
-        "隐秘来客",
-        "远方的钟声",
-    )
 
     def db() -> Database:
         return database
@@ -189,7 +178,7 @@ def create_router(
             UnitSummary(
                 id=f"{content_id}-{offset + index + 1}",
                 index=offset + index,
-                title=f"第 {offset + index + 1}{noun} {chapter_titles[(offset + index) % len(chapter_titles)]}",
+                title=f"第 {offset + index + 1}{noun}",
                 duration_seconds=None if item.channel == Channel.novel else 720,
             )
             for index in range(count)
@@ -240,26 +229,9 @@ def create_router(
             raise HTTPException(status_code=400, detail="该内容不是小说")
         if chapter_index < 0 or chapter_index >= item.unit_count:
             raise HTTPException(status_code=404, detail="章节不存在")
-        if chapter_index > 0:
-            raise HTTPException(
-                status_code=424,
-                detail="该条目仅提供首章试读，请启用可用书源后继续阅读",
-            )
-        chapter_title = chapter_titles[chapter_index % len(chapter_titles)]
-        return ChapterContent(
-            id=f"{content_id}-{chapter_index + 1}",
-            index=chapter_index,
-            title=f"内置试读 · {chapter_title}",
-            paragraphs=[
-                "“愚者”，梅林沉默地注视着这个年轻人。良久，他轻声说道：",
-                "“或许你还没有意识到，成为非凡者的你，已经不再是普通的你了。”",
-                "晨雾沿着山脊缓慢散开，石阶尽头传来一声清越的钟鸣。",
-                "这个世界上有很多秘密，有些被牢牢藏在泥土和灰尘之下。",
-                "如果你真的决定踏上这条道路，就必须无惧深渊的凝视，接受这一切。",
-                "他顿了顿，目光深邃。",
-                "“记住，力量越大，责任越大，代价也越大。”",
-            ],
-            source_id=item.source_id,
+        raise HTTPException(
+            status_code=424,
+            detail="当前条目没有可用正文，请切换或配置有效书源",
         )
 
     @router.post(

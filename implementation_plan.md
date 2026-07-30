@@ -1,5 +1,106 @@
 # MNovel 阅读、听书、书源与离线能力完善计划
 
+## 2026-07-30 假数据清零、书源默认启用与规则引擎升级计划（待批准）
+
+### 已确认根因
+
+1. **书架假数据不是卸载残留，而是应用首次启动主动写入**
+   - `apps/mobile/lib/data/shelf_store.dart` 在 `shelf.items.v1` 不存在时，把 `curatedCatalog` 前 4 本写入本地。
+   - 所以清数据或重新安装后会稳定出现《诡秘之主》《宿命之环》《剑来》《道诡异仙》，这正是截图现象。
+2. **最近搜索同样是客户端硬编码**
+   - `apps/mobile/lib/features/search/search_page.dart` 在 `search.history.v2` 不存在时直接显示上述 4 个关键词。
+   - “热门搜索”来自正式 `/search/meta` 的真实在线响应，不属于本地假历史；本轮保留在线数据，但失败时只显示空状态。
+3. **APK 书源被生成器和界面双重默认关闭**
+   - `scripts/extract_book_sources.py`、后端完整目录和 Flutter 精简目录均把 1,142 条 APK 源写为 `enabled: false`。
+   - `source_management_page.dart` 还禁止 `script_required`、`login_required` 等来源被手动开启；“全部检测”也只检测 `compatible_core`。
+4. **当前解析器是项目内自行编写的受限 Python 兼容层**
+   - `unified_backend/app/api/v1/mnovel/legacy_runtime.py` 主要依赖 BeautifulSoup CSS Selector 与 `jsonpath-ng`。
+   - 当前仅实现旧式 `class.*@tag.*@text`、少量 JSONPath、简单正则替换与 GET/POST；不完整支持 JavaScript、变量状态、Cookie、XPath、分页、登录和 WebView。
+   - 因此即使静态审计把 925 条标为 `compatible_core`，也只是“可尝试”，不是已经通过完整搜索、目录和正文验证。
+5. **异常还包含真实上游连接失败**
+   - 正式目录接口当前可用并返回 1,142 条；抽检基础源仍出现空结果、超时或连接失败。
+   - 截图中的 `All connection attempts failed` 是后端访问旧源站失败后透传的 httpx 异常，不是 Flutter 开关本身造成。
+   - 这些规则大多来自较早的源站配置；域名失效、TLS/反爬变化和页面改版不能仅靠“全部开启”恢复。
+6. **参考 APK 能力边界**
+   - `base.apk` SHA-256 为 `8d3194c81f07bd1ecb5faf241a8a0a16e70455535443cde11834c3d867429134`，包名为 `com.readcd.oneiromancy`。
+   - APK 含 `assets/bookSource.json`（1,142 条）、`txtChapterRule.json` 和 `javax.script.ScriptEngineFactory` 服务声明，说明其执行链包含完整规则 DSL 与 JVM JavaScript 引擎，而非单纯 CSS/JSONPath。
+   - APK 使用 360 加固，DEX 仅能看到壳；本项目不能可靠或合规地复制其实现，只能依据规则格式和可观察行为重建兼容层。
+
+### 实施方案
+
+#### A. 彻底移除生产假数据与兜底内容
+
+1. `ShelfStore` 在键不存在、内容为空或损坏时统一返回空列表，不再写入任何初始书籍。
+2. 搜索历史首次进入、空值和损坏数据统一返回空列表，不再注入示例关键词。
+3. 删除生产代码中的 `curated_catalog.dart` 及只服务于示例目录的封面资源；测试改用测试目录内的 fixture，不让测试假数据进入生产包。
+4. 清理 `ContentRepository` 中仍可触发的本地目录/分类兜底；在线失败时只返回空结果或明确错误状态。
+5. 同步清理 `apps/api` 旧开发后端中的示例小说目录，避免切换本地 API 时重新出现同一批假数据。
+6. 增加回归测试：全新安装、清除数据、损坏 SharedPreferences、无网络四种场景均不得出现示例书名或示例搜索词。
+
+#### B. 所有书源默认启用，并正确迁移旧状态
+
+1. 提取脚本、后端目录和 Flutter 资产统一生成 `enabled: true`；保留 `original_enabled` 仅作审计信息，不再决定 MNovel 默认开关。
+2. 升级启用状态存储版本：新版本首次运行忽略旧资产的默认关闭值；仅用户明确关闭的来源保存覆盖值。
+3. 取消界面对 `script_required`、`login_required` 等分类的开关拦截，所有 1,141 个可见来源默认显示为开启。
+4. “全部检测”覆盖所有已开启来源，使用有界并发、进度、取消和分批执行，避免同时请求上千站点。
+5. 聚合搜索不同时轰击 1,000 多个域名：采用健康度、优先级、失败熔断和轮换批次调度；“开启”表示允许参与调度，不等于每次搜索并发请求全部来源。
+6. 将检测结果拆分为“正常、源站不可达、规则不兼容、需要登录、需要 WebView、超时、TLS/HTTP 异常”，不再把所有失败统称为“异常”。
+7. 修复空异常信息和 `All connection attempts failed` 的用户提示，保留可诊断的源 ID、阶段和后端错误分类。
+
+#### C. 规则解析器升级（推荐路线）
+
+采用**隔离的 Kotlin/JVM 规则执行 sidecar**，由现有 FastAPI 后端通过内部 API 调用：
+
+1. 使用稳定的通用组件，而不是继续手写 HTML/JS 基础设施：
+   - jsoup：HTML5 容错解析、CSS Selector、XPath；
+   - Jayway JsonPath：JSONPath；
+   - Mozilla Rhino：与参考 APK 时代相近的 JVM JavaScript 执行环境；
+   - OkHttp CookieJar：请求、重定向、Cookie、字符集和连接池。
+2. 在这些组件之上实现当前 `bookSource.json` 的旧版平铺规则适配器：
+   - `searchKey/searchPage`、GET/POST、header、charset；
+   - `class/id/tag` 链、CSS、XPath、JSONPath、正则与 `||` 回退；
+   - `@text/@textNodes/@html/@href`、索引、排除与替换；
+   - `<js>`/`@js:`、`@put:`/`@get:` 状态变量；
+   - 搜索、详情、目录、目录分页、正文和正文下一页；
+   - 每源 Cookie 会话与必要的登录状态接口。
+3. JavaScript 必须运行在独立容器/进程中，禁止 Java 类、文件、环境变量和进程访问，并设置 CPU、内存、执行时间、响应大小、重定向及公网地址限制。
+4. WebView/验证码/交互登录规则不伪装为可用：单独标记为“需要交互”，后续通过受控浏览器会话扩展；源站已失效则明确标记“源站失效”。
+5. 以 APK 规则资产建立兼容性测试矩阵，分别覆盖 HTML、JSON、GBK、POST、JS、状态变量、Cookie、分页和正文清洗；不以“能访问首页”冒充全链路成功。
+6. FastAPI 保留现有公开接口，Flutter 无需理解规则 DSL；上线时新增 sidecar 健康检查、版本号、指标、熔断和回滚开关。
+
+### 第三方项目评估结论
+
+| 方案 | 优点 | 与现有 1,142 条 JSON 的关系 | 结论 |
+| --- | --- | --- | --- |
+| jsoup + Rhino + Jayway JsonPath | 活跃、通用、可控，可按旧 DSL 精确适配 | 可保留现有 JSON，需实现语法适配层 | **推荐，作为生产 sidecar 基础** |
+| LNReader Plugins | MIT、TypeScript 插件体系、测试工具完善 | 每个站点需改写成插件，不能直接读取当前 JSON | 适合未来新插件生态，不适合本轮迁移 |
+| Lightnovel Crawler | Python、站点适配器多、带服务端能力 | 站点脚本模型，不兼容当前 JSON；GPL-3.0 | 可参考调度/站点适配，不直接嵌入 |
+| Eso（亦搜） | Flutter、多平台，支持 CSS/JSONPath/XPath/JS 等规则 | DSL 不同，需要批量转换；GPL-3.0 | 仅在项目接受 GPL 且愿意换规则生态时考虑 |
+| Legado/阅读 3.0 | 规则能力最接近目标格式 | 上游仓库当前只保留侵权风险公告、代码已删除 | **不作为新的稳定依赖**，也不复制参考 APK 代码 |
+
+### 验证与验收
+
+1. Flutter：`flutter analyze`、全量 `flutter test`、Android release 构建。
+2. 后端：MNovel 范围 Ruff、全量 Pytest、sidecar 单元/契约/沙箱测试。
+3. 全新安装验收：
+   - 书架为空；
+   - 最近搜索为空；
+   - 不出现任何本地示例小说；
+   - 书源管理全部默认开启。
+4. 规则引擎验收：
+   - 从各规则类别抽取固定样本，验证搜索 → 详情 → 目录 → 正文；
+   - 输出“解析器失败”和“源站失效”的分离统计；
+   - 不承诺已失效域名恢复，但不得再把未执行、连接失败和规则失败混为同一异常。
+5. 生产验收：先灰度部署 sidecar 与新后端，再用正式域名验证移动端；保留旧 Python 受限引擎回滚开关。
+
+### 预计改动范围
+
+- `apps/mobile/lib/data/`、`features/search/`、`features/profile/`、相关测试和资源清单；
+- `scripts/extract_book_sources.py`、`data/book_sources/`；
+- `unified_backend/app/api/v1/mnovel/`、测试与部署配置；
+- 新增独立 JVM 规则执行服务及其容器、契约和安全测试；
+- 完成后更新 `task.md` 与 `walkthrough.md`。
+
 ## 2026-07-29 新版生产后端接口迁移计划（待批准）
 
 ### 线上契约核对结果

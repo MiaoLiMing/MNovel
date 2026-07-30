@@ -8,7 +8,6 @@ import '../core/api_config.dart';
 import '../core/js_runner.dart';
 import '../domain/content.dart';
 import '../domain/content_source.dart';
-import 'curated_catalog.dart';
 import 'offline_library.dart';
 import 'source_store.dart';
 
@@ -104,6 +103,7 @@ class ContentRepository {
   final SourceStore _sourceStore;
   final String _baseUrl;
   int _homeRefreshSeed = 0;
+  int _sourceWindowOffset = 0;
   int _lastSourceCount = 0;
   int _lastFailedSourceCount = 0;
 
@@ -118,12 +118,8 @@ class ContentRepository {
     );
   }
 
-  HomeData localHome({String channel = '推荐'}) => const HomeData(
-    featured: null,
-    carousel: [],
-    editorsPick: [],
-    latest: [],
-  );
+  HomeData localHome({String channel = '推荐'}) =>
+      const HomeData(featured: null, carousel: [], editorsPick: [], latest: []);
 
   Future<HomeData> home({String channel = '推荐'}) async {
     final collected = <ContentItem>[];
@@ -132,9 +128,7 @@ class ContentRepository {
     const refreshPage = 1;
     _homeRefreshSeed++;
     try {
-      final data = await _getObject('/home', {
-        'page': '$refreshPage',
-      });
+      final data = await _getObject('/home', {'page': '$refreshPage'});
       final sections = data['sections'] as List<dynamic>? ?? const [];
       List<ContentItem> sectionItems(String id) {
         for (final rawSection in sections) {
@@ -268,6 +262,29 @@ class ContentRepository {
 
   Future<SourceProbeResult> probeSource(ContentSource source) async {
     if (!source.builtIn) {
+      if (source.kind == SourceKind.legacy) {
+        final stopwatch = Stopwatch()..start();
+        try {
+          final values = await _postList('/sources/runtime/search', {
+            'source': _legacySourcePayload(source),
+            'keyword': '红楼梦',
+            'page': 1,
+          });
+          stopwatch.stop();
+          return SourceProbeResult(
+            health: values.isEmpty ? SourceHealth.error : SourceHealth.healthy,
+            latencyMs: stopwatch.elapsedMilliseconds,
+            message: values.isEmpty ? '搜索规则未返回结果' : 'JVM 规则运行时搜索链路正常',
+          );
+        } catch (error) {
+          stopwatch.stop();
+          return SourceProbeResult(
+            health: SourceHealth.error,
+            latencyMs: stopwatch.elapsedMilliseconds,
+            message: _networkErrorMessage(error),
+          );
+        }
+      }
       final endpoint = source.endpoint.trim();
       if (endpoint.isEmpty) {
         return const SourceProbeResult(
@@ -388,7 +405,7 @@ class ContentRepository {
           })
           .toList(growable: false);
     } catch (_) {
-      return _fallbackTaxonomy;
+      return const [];
     }
   }
 
@@ -454,12 +471,16 @@ class ContentRepository {
   }) async {
     if (_isLegacyItem(item)) {
       final chapters = await _loadLegacyChapters(item);
-      return chapters.skip(offset).take(limit).map((chapter) {
-        return ChapterEntry(
-          index: (chapter['index'] as num?)?.toInt() ?? 0,
-          title: chapter['title']?.toString() ?? '未命名章节',
-        );
-      }).toList(growable: false);
+      return chapters
+          .skip(offset)
+          .take(limit)
+          .map((chapter) {
+            return ChapterEntry(
+              index: (chapter['index'] as num?)?.toInt() ?? 0,
+              title: chapter['title']?.toString() ?? '未命名章节',
+            );
+          })
+          .toList(growable: false);
     }
     try {
       final data = await _getList('/content/${item.id}/units', {
@@ -470,19 +491,7 @@ class ContentRepository {
           .map((value) => ChapterEntry.fromJson(value))
           .toList(growable: false);
     } catch (error) {
-      if (item.isLive) {
-        throw ContentRepositoryException(_networkErrorMessage(error));
-      }
-      final count = (item.episodeCount - offset).clamp(0, limit);
-      return List.generate(count, (index) {
-        final actualIndex = offset + index;
-        return ChapterEntry(
-          index: actualIndex,
-          title:
-              '第 ${actualIndex + 1} 章 '
-              '${chapterTitleCycle[actualIndex % chapterTitleCycle.length]}',
-        );
-      });
+      throw ContentRepositoryException(_networkErrorMessage(error));
     }
   }
 
@@ -522,9 +531,10 @@ class ContentRepository {
       if (index >= urls.length) {
         throw const ContentRepositoryException('当前书源没有提供这一章');
       }
-      final data = await _getChapterObject(
-        '/sources/legacy/${item.sourceId}/chapter',
-        {'chapter_url': urls[index], 'title': '第 ${index + 1} 章'},
+      final data = await _loadLegacyContent(
+        item,
+        urls[index],
+        '第 ${index + 1} 章',
       );
       return _validateChapter(
         Chapter(
@@ -549,22 +559,7 @@ class ContentRepository {
       );
       return _validateChapter(Chapter.fromJson(data));
     } catch (error) {
-      if (item.isLive || index > 0) {
-        throw ContentRepositoryException(_networkErrorMessage(error));
-      }
-      return Chapter(
-        index: index,
-        title: '内置试读 · ${chapterTitleCycle[index % chapterTitleCycle.length]}',
-        paragraphs: const [
-          '“愚者”，梅林沉默地注视着这个年轻人。良久，他轻声说道：',
-          '“或许你还没有意识到，成为非凡者的你，已经不再是普通的你了。”',
-          '晨雾沿着山脊缓慢散开，石阶尽头传来一声清越的钟鸣。',
-          '这个世界上有很多秘密，有些被牢牢藏在泥土和灰尘之下。',
-          '如果你真的决定踏上这条道路，就必须无惧深渊的凝视，接受这一切。',
-          '他顿了顿，目光深邃。',
-          '“记住，力量越大，责任越大，代价也越大。”',
-        ],
-      );
+      throw ContentRepositoryException(_networkErrorMessage(error));
     }
   }
 
@@ -618,6 +613,44 @@ class ContentRepository {
     return (jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>)
         .map((value) => Map<String, dynamic>.from(value as Map))
         .toList(growable: false);
+  }
+
+  Future<List<Map<String, dynamic>>> _postList(
+    String path,
+    Map<String, dynamic> payload,
+  ) async {
+    final response = await _client
+        .post(
+          _uri(path),
+          headers: const {'content-type': 'application/json; charset=utf-8'},
+          body: jsonEncode(payload),
+        )
+        .timeout(_chapterTimeout);
+    if (response.statusCode != 200) {
+      throw ContentRepositoryException(_responseError(response));
+    }
+    return (jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>)
+        .map((value) => Map<String, dynamic>.from(value as Map))
+        .toList(growable: false);
+  }
+
+  Future<Map<String, dynamic>> _postObject(
+    String path,
+    Map<String, dynamic> payload,
+  ) async {
+    final response = await _client
+        .post(
+          _uri(path),
+          headers: const {'content-type': 'application/json; charset=utf-8'},
+          body: jsonEncode(payload),
+        )
+        .timeout(_chapterTimeout);
+    if (response.statusCode != 200) {
+      throw ContentRepositoryException(_responseError(response));
+    }
+    return Map<String, dynamic>.from(
+      jsonDecode(utf8.decode(response.bodyBytes)) as Map,
+    );
   }
 
   Future<Map<String, dynamic>> _getChapterObject(
@@ -675,7 +708,7 @@ class ContentRepository {
     final sources = await _sourceStore.list();
     final enabled = sources.where((source) => source.enabled).toList()
       ..sort((left, right) => right.priority.compareTo(left.priority));
-    final supported = enabled
+    final eligible = enabled
         .where(
           (source) =>
               (includePublicFallback &&
@@ -686,10 +719,19 @@ class ContentRepository {
               source.kind == SourceKind.js ||
               source.kind == SourceKind.legacy,
         )
-        .take(12)
         .toList(growable: false);
+    const windowSize = 12;
+    final supported = <ContentSource>[];
+    if (eligible.isNotEmpty) {
+      final start = _sourceWindowOffset % eligible.length;
+      final count = eligible.length < windowSize ? eligible.length : windowSize;
+      for (var index = 0; index < count; index++) {
+        supported.add(eligible[(start + index) % eligible.length]);
+      }
+      _sourceWindowOffset = (start + count) % eligible.length;
+    }
     _lastSourceCount =
-        supported.length +
+        eligible.length +
         enabled.where((source) => source.kind == SourceKind.backendRule).length;
     final results = await Future.wait(
       supported.map((source) async {
@@ -1089,11 +1131,16 @@ class ContentRepository {
     required int page,
   }) async {
     if (query.trim().isEmpty) return const [];
-    final values = await _getList(
-      '/sources/legacy/${source.id}/search',
-      {'query': query.trim(), 'page': '$page'},
-      const Duration(seconds: 12),
-    );
+    final values = source.builtIn
+        ? await _getList('/sources/legacy/${source.id}/search', {
+            'query': query.trim(),
+            'page': '$page',
+          }, const Duration(seconds: 12))
+        : await _postList('/sources/runtime/search', {
+            'source': _legacySourcePayload(source),
+            'keyword': query.trim(),
+            'page': page,
+          });
     return values
         .map(
           (value) => ContentItem(
@@ -1128,11 +1175,55 @@ class ContentRepository {
 
   Future<List<Map<String, dynamic>>> _loadLegacyChapters(
     ContentItem item,
-  ) => _getList(
-    '/sources/legacy/${item.sourceId}/chapters',
-    {'detail_url': _legacyDetailUrl(item)},
-    _chapterTimeout,
-  );
+  ) async {
+    final source = (await _sourceStore.list()).firstWhere(
+      (value) => value.id == item.sourceId,
+      orElse: () => throw const ContentRepositoryException('未找到小说对应的书源规则'),
+    );
+    if (source.builtIn) {
+      return _getList('/sources/legacy/${item.sourceId}/chapters', {
+        'detail_url': _legacyDetailUrl(item),
+      }, _chapterTimeout);
+    }
+    return _postList('/sources/runtime/chapters', {
+      'source': _legacySourcePayload(source),
+      'detailUrl': _legacyDetailUrl(item),
+    });
+  }
+
+  Future<Map<String, dynamic>> _loadLegacyContent(
+    ContentItem item,
+    String chapterUrl,
+    String title,
+  ) async {
+    final source = (await _sourceStore.list()).firstWhere(
+      (value) => value.id == item.sourceId,
+      orElse: () => throw const ContentRepositoryException('未找到小说对应的书源规则'),
+    );
+    if (source.builtIn) {
+      return _getChapterObject('/sources/legacy/${item.sourceId}/chapter', {
+        'chapter_url': chapterUrl,
+        'title': title,
+      });
+    }
+    return _postObject('/sources/runtime/content', {
+      'source': _legacySourcePayload(source),
+      'chapterUrl': chapterUrl,
+      'title': title,
+    });
+  }
+
+  Map<String, dynamic> _legacySourcePayload(ContentSource source) {
+    final raw = source.rules?['__source_json'];
+    if (raw == null || raw.isEmpty) {
+      throw const ContentRepositoryException('书源缺少可执行的 Legado 规则');
+    }
+    try {
+      return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    } catch (_) {
+      throw const ContentRepositoryException('Legado 书源规则 JSON 已损坏');
+    }
+  }
 
   List<ContentItem> _mergeItems(List<ContentItem> items) {
     final merged = <String, ContentItem>{};
@@ -1275,58 +1366,4 @@ class ContentRepository {
     }
     return trimmed.trim();
   }
-
 }
-
-const _fallbackTaxonomy = <FilterGroup>[
-  FilterGroup(
-    id: 'category',
-    label: '题材',
-    options: [
-      FilterOption(value: '全部', label: '全部'),
-      FilterOption(value: '玄幻', label: '玄幻'),
-      FilterOption(value: '奇幻', label: '奇幻'),
-      FilterOption(value: '武侠', label: '武侠'),
-      FilterOption(value: '仙侠', label: '仙侠'),
-      FilterOption(value: '都市', label: '都市'),
-      FilterOption(value: '历史', label: '历史'),
-      FilterOption(value: '军事', label: '军事'),
-      FilterOption(value: '科幻', label: '科幻'),
-      FilterOption(value: '游戏', label: '游戏'),
-      FilterOption(value: '悬疑', label: '悬疑'),
-      FilterOption(value: '其他', label: '其他'),
-    ],
-  ),
-  FilterGroup(
-    id: 'status',
-    label: '状态',
-    options: [
-      FilterOption(value: 'all', label: '全部'),
-      FilterOption(value: 'serializing', label: '连载中'),
-      FilterOption(value: 'completed', label: '已完结'),
-    ],
-  ),
-  FilterGroup(
-    id: 'word_count',
-    label: '字数',
-    options: [
-      FilterOption(value: 'all', label: '全部'),
-      FilterOption(value: 'under-300k', label: '30万以下'),
-      FilterOption(value: '300k-1m', label: '30-100万'),
-      FilterOption(value: '1m-3m', label: '100-300万'),
-      FilterOption(value: '3m-5m', label: '300-500万'),
-      FilterOption(value: 'over-5m', label: '500万以上'),
-    ],
-  ),
-  FilterGroup(
-    id: 'source',
-    label: '来源',
-    options: [
-      FilterOption(value: '全部', label: '全部'),
-      FilterOption(value: '免费小说之王（MIUI）', label: '免费小说之王'),
-      FilterOption(value: '书虫中文网', label: '书虫中文网'),
-      FilterOption(value: '567中文', label: '567中文'),
-      FilterOption(value: '自定义书源', label: '自定义'),
-    ],
-  ),
-];
