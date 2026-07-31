@@ -357,4 +357,26 @@ void main() {
       ),
     );
   });
+
+  test('健康书源复检不会请求服务端重新扫描原始全量目录', () async {
+    SharedPreferences.setMockInitialValues({});
+    late Uri requested;
+    final repository = ContentRepository(
+      sourceStore: _MockSourceStore(const []),
+      client: MockClient((request) async {
+        requested = request.url;
+        return http.Response(
+          '{"status":"running","total":3,"completed":0,'
+          '"healthy":0,"quarantined":0}',
+          200,
+        );
+      }),
+    );
+
+    final progress = await repository.startSourceAudit();
+
+    expect(progress.total, 3);
+    expect(requested.path, endsWith('/sources/audit'));
+    expect(requested.queryParameters.containsKey('force'), isFalse);
+  });
 }

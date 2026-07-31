@@ -37,10 +37,10 @@ class _Repository extends ContentRepository {
   Future<SourceAuditProgress> sourceAuditStatus() async =>
       const SourceAuditProgress(
         state: SourceAuditState.completed,
-        total: 2247,
-        completed: 2247,
+        total: 2,
+        completed: 2,
         healthy: 2,
-        quarantined: 2245,
+        quarantined: 0,
       );
 }
 

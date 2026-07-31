@@ -95,7 +95,9 @@ class SourceStore {
     name: value['name']?.toString() ?? '未命名书源',
     description: '已通过搜索、目录和正文完整链路验证',
     channels: const {ContentChannel.novel},
-    kind: SourceKind.legacy,
+    kind: value['kind'] == 'backend_rule'
+        ? SourceKind.backendRule
+        : SourceKind.legacy,
     endpoint: value['endpoint']?.toString() ?? '',
     enabled: true,
     builtIn: true,

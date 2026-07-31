@@ -101,7 +101,7 @@ class _SourceManagementPageState extends State<SourceManagementPage> {
   Future<void> _startAudit() async {
     setState(() => _error = null);
     try {
-      final progress = await _repository.startSourceAudit(force: true);
+      final progress = await _repository.startSourceAudit();
       if (!mounted) return;
       setState(() => _audit = progress);
       _startPolling();

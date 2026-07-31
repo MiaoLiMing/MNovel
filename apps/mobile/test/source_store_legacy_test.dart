@@ -23,12 +23,13 @@ void main() {
           utf8.encode(
             jsonEncode([
               {
-                'id': 'legacy-healthy-one',
-                'name': '健康书源一',
+                'id': 'miui-reader-rule',
+                'name': '免费小说之王（MIUI）',
                 'endpoint': 'https://one.example',
                 'priority': 90,
                 'health': 'healthy',
                 'latency_ms': 120,
+                'kind': 'backend_rule',
               },
               {
                 'id': 'legacy-healthy-two',
@@ -48,13 +49,15 @@ void main() {
 
     final sources = await store.list();
 
-    expect(sources.map((source) => source.name), ['健康书源一', '健康书源二']);
+    expect(sources.map((source) => source.name), ['免费小说之王（MIUI）', '健康书源二']);
     expect(sources.every((source) => source.builtIn), isTrue);
     expect(sources.every((source) => source.enabled), isTrue);
     expect(
       sources.every((source) => source.health == SourceHealth.healthy),
       isTrue,
     );
+    expect(sources.first.kind, SourceKind.backendRule);
+    expect(sources.last.kind, SourceKind.legacy);
   });
 
   test('网络失败时使用最近一次健康目录缓存', () async {

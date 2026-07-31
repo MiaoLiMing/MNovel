@@ -278,9 +278,9 @@ class ContentRepository {
   Future<SourceAuditProgress> sourceAuditStatus() async =>
       SourceAuditProgress.fromJson(await _getObject('/sources/audit/status'));
 
-  Future<SourceAuditProgress> startSourceAudit({bool force = true}) async {
+  Future<SourceAuditProgress> startSourceAudit() async {
     final response = await _client
-        .post(_uri('/sources/audit', {'force': '$force'}))
+        .post(_uri('/sources/audit'))
         .timeout(const Duration(seconds: 8));
     if (response.statusCode != 200) {
       throw ContentRepositoryException(_responseError(response));
