@@ -479,3 +479,21 @@ Android Release APK：
 - 最终全量检测 2,250 个候选，16 个规则通过；同站点入口去重后 App 展示 14 个健康来源。
 - 健康目录包含 13 个 Legacy 来源和“免费小说之王（MIUI）”。
 - 普通“全部检测”只检测 14 个健康来源，结果为 `14/14` 健康、0 隔离，不再扫描 2,250 条原始目录。
+# 2026-08-01 搜索首屏性能与 biquge.tw 接入
+
+## 已完成
+
+- 后端 Legacy 聚合搜索改为搜索与目录校验共享总预算，路由预算从 12+8 秒收紧为最多 6 秒总预算。
+- 增加 5 分钟目录校验缓存，重复搜索不再重复请求同一本书的目录。
+- Flutter 聚合搜索超时从 22 秒收紧为 8 秒；搜索请求增加代际标识，连续输入时旧响应/旧错误不会覆盖新查询。
+- 通过统一后端 Legacy 书源目录登记 `biquge.tw`，状态为默认关闭的 `metadata_only`，记录了搜索、详情和目录规则及 robots 参考地址。
+
+## 合规限制
+
+`biquge.tw` 的 robots.txt 禁止自动访问章节正文 `/book/*/*.html`，且站点存在 Cloudflare 403。当前不会绕过访问控制或抓取正文，因此该源不会进入可阅读健康源集合；只有在获得站点授权或公开正文 API 后才能继续接入正文链路。
+
+## 验证结果
+
+- `pytest tests/test_mnovel_legacy_search.py tests/test_mnovel_legacy_sources.py -q`：7 passed。
+- Ruff、Legacy JSON 格式和 `git diff --check`：通过。
+- Flutter analyze/test 未能执行：本机 Flutter/Dart 为 2.18.2，项目要求 Dart >=3.12.0。

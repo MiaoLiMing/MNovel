@@ -1216,7 +1216,7 @@ class ContentRepository {
       'query': query.trim(),
       'page': '$page',
       'limit': '60',
-    }, const Duration(seconds: 22));
+    }, const Duration(seconds: 8));
     return values
         .map((value) {
           final sourceId = value['source_id']?.toString() ?? '';

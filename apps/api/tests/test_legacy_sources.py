@@ -70,14 +70,14 @@ def test_catalog_contains_all_apk_records():
         / "data/book_sources/legacy_sources.json"
     )
     summary = LegacySourceCatalog(path).summary()
-    assert summary.total == 1142
-    assert sum(summary.compatibility.values()) == 1142
+    assert summary.total == 1143
+    assert sum(summary.compatibility.values()) == 1143
 
 
 def test_legacy_catalog_api_can_filter(client):
     summary = client.get("/api/v1/mnovel/sources/legacy/summary")
     assert summary.status_code == 200
-    assert summary.json()["total"] == 1142
+    assert summary.json()["total"] == 1143
 
     response = client.get(
         "/api/v1/mnovel/sources/legacy",
@@ -101,3 +101,13 @@ async def test_html_rule_chain():
 
     paragraphs = await engine.chapter_content(source, chapters[0].url)
     assert paragraphs == ["第一段", "第二段"]
+def test_biquge_metadata_source_is_registered_but_disabled(client):
+    response = client.get(
+        "/api/v1/mnovel/sources/legacy",
+        params={"query": "biquge.tw", "limit": 20},
+    )
+    assert response.status_code == 200
+    values = response.json()
+    assert len(values) == 1
+    assert values[0]["compatibility"] == "metadata_only"
+    assert values[0]["enabled"] is False

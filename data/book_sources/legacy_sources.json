@@ -41849,6 +41849,38 @@
         "ruleSearchNoteUrl": "class.result-item-title.0@tag.a.0@href",
         "ruleSearchUrl": "http://www.dajiezhu.com/search.php?keyword=searchKey&page=searchPage"
       }
+    },
+    {
+      "id": "biquge-tw-metadata",
+      "name": "笔趣阁（biquge.tw）",
+      "base_url": "https://www.biquge.tw",
+      "group": "受限元数据源",
+      "source_type": "NOVEL",
+      "enabled": false,
+      "original_enabled": false,
+      "priority": 0,
+      "serial_number": 0,
+      "user_agent": "MNovel/1.0 (+metadata search; no chapter crawling)",
+      "login_url": "",
+      "compatibility": "metadata_only",
+      "compatibility_reason": "站点 robots.txt 禁止自动访问章节正文路径；当前仅记录公开搜索、详情与目录接口，未启用正文抓取",
+      "built_in": true,
+      "origin": "manual:biquge.tw-public-pages",
+      "original_index": 1000000,
+      "reference": "https://www.biquge.tw/robots.txt",
+      "rules": {
+        "ruleSearchUrl": "/search/?searchkey=searchKey&page=searchPage",
+        "ruleSearchList": ".result-card",
+        "ruleSearchName": ".book-title@text",
+        "ruleSearchNoteUrl": ".book-title@href",
+        "ruleSearchAuthor": ".author@text",
+        "ruleSearchCoverUrl": ".book-cover img@src",
+        "ruleSearchIntroduce": ".book-intro@text",
+        "ruleSearchLastChapter": ".latest a@text",
+        "ruleChapterList": ".booklist ul li a",
+        "ruleChapterName": "text",
+        "ruleChapterUrl": "href"
+      }
     }
   ]
 }

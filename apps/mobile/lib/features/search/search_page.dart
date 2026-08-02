@@ -32,6 +32,7 @@ class _SearchPageState extends State<SearchPage> {
   bool _loading = false;
   String? _error;
   Timer? _debounce;
+  int _searchGeneration = 0;
 
   bool get _hasQuery => _controller.text.trim().isNotEmpty;
 
@@ -100,6 +101,7 @@ class _SearchPageState extends State<SearchPage> {
   Future<void> _search(String value, {bool commitHistory = true}) async {
     final query = value.trim();
     if (query.isEmpty) return;
+    final generation = ++_searchGeneration;
     setState(() {
       _loading = true;
       _error = null;
@@ -109,14 +111,18 @@ class _SearchPageState extends State<SearchPage> {
         ContentChannel.novel,
         query: query,
       );
-      if (!mounted || query != _controller.text.trim()) return;
+      if (!mounted ||
+          generation != _searchGeneration ||
+          query != _controller.text.trim()) {
+        return;
+      }
       setState(() {
         _results = items;
         _loading = false;
       });
       if (commitHistory) await _remember(query);
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || generation != _searchGeneration) return;
       setState(() {
         _loading = false;
         _error = '搜索暂时不可用，请稍后重试';
